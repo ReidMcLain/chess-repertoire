@@ -1,0 +1,11 @@
+[Event "My Black Repertoire"]
+[Site "Chess Repertoire Memorizer"]
+[Date "2026.07.10"]
+[Round "-"]
+[White "?"]
+[Black "?"]
+[Result "*"]
+[RepertoireColor "Black"]
+[CRMVersion "1"]
+
+1. e4 ( 1. d4 Nf6 { [%crm_quiz 1] } ) 1... c5 { [%crm_quiz 1] } *
