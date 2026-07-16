@@ -20,24 +20,24 @@ class RepertoireStoreTests(unittest.TestCase):
         info = self.store.create("Caro-Kann", chess.WHITE)
         moves = [chess.Move.from_uci(uci) for uci in ("e2e4", "c7c6", "g1f3")]
 
-        self.assertTrue(self.store.add_line(info, moves))
-        self.assertFalse(self.store.add_line(info, moves))
+        self.assertEqual("added", self.store.add_line(info, moves))
+        self.assertEqual("duplicate", self.store.add_line(info, moves))
 
         prompts = self.store.compile(info)
         self.assertEqual(1, len(prompts))
         self.assertEqual({"g1f3"}, prompts[0]["accepted_uci"])
         self.assertNotIn(QUIZ_MARK, info.path.read_text(encoding="utf-8").split("1. e4", 1)[0])
 
-    def test_multiple_marked_children_become_one_prompt(self) -> None:
+    def test_new_reply_replaces_the_previous_reply_from_same_position(self) -> None:
         info = self.store.create("First Moves", chess.WHITE)
-        self.store.add_line(info, [chess.Move.from_uci("e2e4")])
-        self.store.add_line(info, [chess.Move.from_uci("d2d4")])
+        self.assertEqual("added", self.store.add_line(info, [chess.Move.from_uci("e2e4")]))
+        self.assertEqual("replaced", self.store.add_line(info, [chess.Move.from_uci("d2d4")]))
 
         prompts = self.store.compile(info)
 
         self.assertEqual(1, len(prompts))
-        self.assertEqual({"e2e4", "d2d4"}, prompts[0]["accepted_uci"])
-        self.assertEqual(2, len(prompts[0]["accepted_moves"]))
+        self.assertEqual({"d2d4"}, prompts[0]["accepted_uci"])
+        self.assertEqual(1, len(prompts[0]["accepted_moves"]))
 
     def test_generic_import_marks_every_selected_side_move(self) -> None:
         text = "[Event \"Imported\"]\n\n1. e4 c5 (1... e5) 2. Nf3 *\n"
@@ -60,6 +60,32 @@ class RepertoireStoreTests(unittest.TestCase):
         self.assertEqual(1, preview["prompt_count"])
         self.assertEqual(1, preview["answer_count"])
 
+    def test_import_keeps_only_the_latest_marked_reply_per_position(self) -> None:
+        text = (
+            f'[Event "Imported"]\n\n'
+            f'1. e4 {{ {QUIZ_MARK} }} (1. d4 {{ {QUIZ_MARK} }}) *\n'
+        )
+
+        preview = self.store.preview_import(text, chess.WHITE)
+        info = self.store.import_preview(preview, "Imported", chess.WHITE, "new")
+        prompts = self.store.compile(info)
+
+        self.assertEqual([], preview["errors"])
+        self.assertEqual(1, preview["answer_count"])
+        self.assertEqual({"d2d4"}, prompts[0]["accepted_uci"])
+
+    def test_merged_import_overrides_the_existing_reply(self) -> None:
+        info = self.store.create("Imported", chess.WHITE)
+        self.store.add_line(info, [chess.Move.from_uci("d2d4")])
+        self.store.add_line(info, [chess.Move.from_uci("e2e4")])
+        text = f'[Event "Incoming"]\n\n1. d4 {{ {QUIZ_MARK} }} *\n'
+
+        preview = self.store.preview_import(text, chess.WHITE)
+        self.store.import_preview(preview, "Imported", chess.WHITE, "merge")
+        prompts = self.store.compile(info)
+
+        self.assertEqual({"d2d4"}, prompts[0]["accepted_uci"])
+
     def test_remove_answer_unmarks_without_deleting_context(self) -> None:
         info = self.store.create("First Moves", chess.WHITE)
         self.store.add_line(info, [chess.Move.from_uci("e2e4")])
@@ -72,6 +98,26 @@ class RepertoireStoreTests(unittest.TestCase):
         games, errors = parse_pgn(info.path.read_text(encoding="utf-8"))
         self.assertEqual([], errors)
         self.assertEqual(["e2e4"], [move.uci() for move in games[0].mainline_moves()])
+
+    def test_replace_answer_updates_the_trained_move_atomically(self) -> None:
+        info = self.store.create("Black Replies", chess.BLACK)
+        self.store.add_line(
+            info,
+            [chess.Move.from_uci("e2e4"), chess.Move.from_uci("c7c5")],
+        )
+        original = self.store.compile(info)[0]
+
+        removed = self.store.replace_answer(
+            info,
+            original["position_key"],
+            "c7c5",
+            [chess.Move.from_uci("e2e4"), chess.Move.from_uci("e7e5")],
+        )
+
+        prompts = self.store.compile(info)
+        self.assertEqual(1, removed)
+        self.assertEqual(1, len(prompts))
+        self.assertEqual({"e7e5"}, prompts[0]["accepted_uci"])
 
     def test_transposed_paths_compile_to_one_position(self) -> None:
         info = self.store.create("Transpositions", chess.BLACK)

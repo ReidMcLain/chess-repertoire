@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 import chess
 import chess.pgn
 
+from opening_classifier import OPENING_CLASSIFIER
 from repertoire_store import RepertoireInfo, RepertoireStore
 
 
@@ -24,28 +25,6 @@ SUCCESS = "#15803d"
 ASSET_DIR = Path(__file__).with_name("assets") / "pieces"
 CHECK_SUCCESS_LOTTIE = Path(__file__).with_name("assets") / "check_success.json"
 REPERTOIRE_DIR = Path(__file__).with_name("repertoire")
-
-# Ordered from broad openings to specific branches. The longest match wins.
-OPENING_RULES = [
-    (("e2e4", "c7c5"), "Sicilian Defense", "", ""),
-    (("e2e4", "e7e5"), "Open Game", "", ""),
-    (("e2e4", "e7e5", "g1f3", "g8f6"), "Petrov's Defense", "", ""),
-    (("e2e4", "e7e5", "g1f3", "g8f6", "d2d4"), "Petrov's Defense", "Steinitz Attack", ""),
-    (("e2e4", "e7e5", "g1f3", "b8c6", "f1c4"), "Italian Game", "", ""),
-    (("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"), "Italian Game", "Giuoco Piano", ""),
-    (("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "b2b4"), "Italian Game", "Evans Gambit", ""),
-    (("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "b2b4", "c5b4"), "Italian Game", "Evans Gambit", "Accepted"),
-    (("e2e4", "d7d5"), "Scandinavian Defense", "", ""),
-    (("e2e4", "d7d5", "e4d5"), "Scandinavian Defense", "Main Line", ""),
-    (("e2e4", "e7e6"), "French Defense", "", ""),
-    (("e2e4", "e7e6", "e4e5"), "French Defense", "Advance Variation", ""),
-    (("e2e4", "c7c6"), "Caro-Kann Defense", "", ""),
-    (("e2e4", "c7c6", "g1f3", "d7d5", "b1c3"), "Caro-Kann Defense", "Two Knights Attack", ""),
-    (("e2e4", "c7c6", "g1f3", "d7d5", "b1c3", "d5e4", "c3e4"), "Caro-Kann Defense", "Two Knights Attack", "3...dxe4"),
-    (("e2e4", "c7c6", "g1f3", "d7d5", "b1c3", "c8g4"), "Caro-Kann Defense", "Two Knights Attack", "3...Bg4"),
-    (("e2e4", "c7c6", "g1f3", "d7d5", "b1c3", "d5d4"), "Caro-Kann Defense", "Two Knights Attack", "3...d4"),
-    (("d2d4", "g8f6"), "Indian Game", "", ""),
-]
 
 PIECES = {
     chess.PAWN: ("P", "p"),
@@ -70,6 +49,13 @@ class ChessMvpApp:
         self.mode = "play"
         self.move_history: list[dict[str, str]] = []
         self.move_cursor = 0
+        self.history_root_fen = chess.Board().fen()
+        self.active_line_card: dict | None = None
+        self.editing_card: dict | None = None
+        self.edit_dirty = False
+        self.repertoire_expanded_sections: set[tuple[str, ...]] = set()
+        self.repertoire_scroll_fraction = 0.0
+        self.repertoire_scroll_canvas: tk.Canvas | None = None
         self.quiz_cards: list[dict] = []
         self.quiz_source_cards: list[dict] = []
         self.quiz_dialog: tk.Toplevel | None = None
@@ -121,6 +107,17 @@ class ChessMvpApp:
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        self.root.bind("<Left>", lambda _event: self.back_move())
+        self.root.bind("<Right>", lambda _event: self.forward_move())
+        self.mode_banner = tk.StringVar(value="")
+        self.mode_banner_label = tk.Label(
+            board_frame,
+            textvariable=self.mode_banner,
+            font=("Segoe UI", 12, "bold"),
+            bg=PANEL,
+            fg=TEXT,
+        )
+        self.mode_banner_label.pack(pady=(8, 0))
         board_controls = ttk.Frame(board_frame, style="Panel.TFrame")
         board_controls.pack(pady=(8, 0))
         self.back_button = ttk.Button(board_controls, text="←", width=3, command=self.back_move)
@@ -275,7 +272,7 @@ class ChessMvpApp:
         self.drag_item = self.canvas.create_text(x, y, text=symbol, font=("Segoe UI", 36, "bold"))
 
     def try_move(self, from_square: chess.Square, to_square: chess.Square) -> None:
-        if self.mode not in {"play", "quiz"}:
+        if self.mode not in {"play", "edit", "quiz"}:
             return
 
         move = chess.Move(from_square, to_square)
@@ -310,6 +307,8 @@ class ChessMvpApp:
             }
         )
         self.move_cursor = len(self.move_history)
+        if self.mode == "edit":
+            self.edit_dirty = True
         self.clear_feedback()
         self.status.set(f"Played {san}. {'White' if self.board.turn else 'Black'} to move")
         self.selected_square = None
@@ -317,20 +316,20 @@ class ChessMvpApp:
         self.update_pgn()
 
     def back_move(self) -> None:
-        if self.mode != "play" or self.move_cursor == 0:
+        if self.mode not in {"play", "view", "edit"} or self.move_cursor == 0:
             return
         self.move_cursor -= 1
         self.restore_board_to_cursor()
 
     def forward_move(self) -> None:
-        if self.mode != "play" or self.move_cursor >= len(self.move_history):
+        if self.mode not in {"play", "view", "edit"} or self.move_cursor >= len(self.move_history):
             return
         self.move_cursor += 1
         self.restore_board_to_cursor()
 
     def restore_board_to_cursor(self) -> None:
         if self.move_cursor == 0:
-            self.board.reset()
+            self.board = chess.Board(self.history_root_fen)
         else:
             self.board = chess.Board(self.move_history[self.move_cursor - 1]["after_fen"])
         self.rebuild_game_from_history()
@@ -342,8 +341,10 @@ class ChessMvpApp:
 
     def rebuild_game_from_history(self) -> None:
         self.game = chess.pgn.Game()
+        board = chess.Board(self.history_root_fen)
+        if board.fen() != chess.Board().fen():
+            self.game.setup(board)
         self.current_node = self.game
-        board = chess.Board()
         for entry in self.move_history[: self.move_cursor]:
             move = chess.Move.from_uci(entry["move_uci"])
             if move not in board.legal_moves:
@@ -358,6 +359,7 @@ class ChessMvpApp:
         return chess.square_rank(move.to_square) in {0, 7}
 
     def draw_board(self) -> None:
+        self.update_mode_banner()
         self.update_navigation_buttons()
         self.canvas.delete("all")
         legal_targets = self.legal_targets_from_selected()
@@ -405,12 +407,24 @@ class ChessMvpApp:
                         )
 
     def update_navigation_buttons(self) -> None:
-        if self.mode == "play":
+        if self.mode in {"play", "view", "edit"}:
             self.back_button.grid()
             self.forward_button.grid()
         else:
             self.back_button.grid_remove()
             self.forward_button.grid_remove()
+
+    def update_mode_banner(self) -> None:
+        labels = {
+            "view": "VIEWING SAVED MOVE",
+            "edit": "EDITING SAVED MOVE",
+        }
+        colors = {
+            "view": "#1d4ed8",
+            "edit": "#b45309",
+        }
+        self.mode_banner.set(labels.get(self.mode, ""))
+        self.mode_banner_label.configure(fg=colors.get(self.mode, TEXT))
 
     def load_piece_images(self) -> dict[str, tk.PhotoImage]:
         images = {}
@@ -606,12 +620,14 @@ class ChessMvpApp:
             return
         moves = [chess.Move.from_uci(entry["move_uci"]) for entry in self.move_history[: self.move_cursor]]
         try:
-            added = self.store.add_line(info, moves)
+            outcome = self.store.add_line(info, moves)
         except (ValueError, OSError) as exc:
             self.status.set(str(exc))
             return
         card = self.move_history[self.move_cursor - 1]
-        if added:
+        if outcome == "replaced":
+            self.status.set(f"Replaced the previous reply with {card['move_san']} in {info.name}")
+        elif outcome == "added":
             self.status.set(f"Saved {card['move_san']} in {info.name}")
         else:
             self.status.set(f"Duplicate ignored: {card['move_san']} is already trainable in {info.name}")
@@ -623,6 +639,10 @@ class ChessMvpApp:
         self.mode = "play"
         self.move_history = []
         self.move_cursor = 0
+        self.history_root_fen = chess.Board().fen()
+        self.active_line_card = None
+        self.editing_card = None
+        self.edit_dirty = False
         self.quiz_cards = []
         self.quiz_source_cards = []
         self.quiz_index = 0
@@ -655,11 +675,7 @@ class ChessMvpApp:
             return stored
 
         moves = self.pgn_uci_moves(card.get("pgn", ""))
-        best = ("Unclassified position", "", "")
-        for sequence, opening, variation, subvariation in OPENING_RULES:
-            if len(sequence) <= len(moves) and tuple(moves[: len(sequence)]) == sequence:
-                best = (opening, variation, subvariation)
-        return dict(zip(fields, best))
+        return OPENING_CLASSIFIER.classify(moves).opening_fields()
 
     def pgn_uci_moves(self, pgn: str) -> list[str]:
         try:
@@ -671,6 +687,17 @@ class ChessMvpApp:
     def opening_label(self, card: dict[str, str]) -> str:
         classification = self.classify_opening(card)
         return " > ".join(value for value in classification.values() if value)
+
+    def classification_groups(
+        self,
+        cards: list[dict[str, str]],
+        field: str,
+    ) -> dict[str, list[dict[str, str]]]:
+        groups: dict[str, list[dict[str, str]]] = {}
+        for card in cards:
+            label = self.classify_opening(card)[field] or "Main line"
+            groups.setdefault(label, []).append(card)
+        return groups
 
     def repertoire_sort_key(self, card: dict[str, str]) -> tuple[str, str, str, int, str]:
         classification = self.classify_opening(card)
@@ -709,7 +736,8 @@ class ChessMvpApp:
     def show_quiz_selector(self, cards: list[dict]) -> None:
         opening_groups: dict[tuple[str, str], list[dict]] = {}
         for card in cards:
-            opening_groups.setdefault((card["repertoire_id"], card["opening"]), []).append(card)
+            key = (card["repertoire_id"], self.opening_label(card))
+            opening_groups.setdefault(key, []).append(card)
 
         dialog = tk.Toplevel(self.root)
         self.quiz_dialog = dialog
@@ -786,7 +814,7 @@ class ChessMvpApp:
             selected_cards = [
                 card
                 for card in cards
-                if (card["repertoire_id"], card["opening"]) in selected
+                if (card["repertoire_id"], self.opening_label(card)) in selected
             ]
             if not selected_cards:
                 return
@@ -866,6 +894,10 @@ class ChessMvpApp:
             self.current_node = self.game
             self.move_history = []
             self.move_cursor = 0
+            self.history_root_fen = chess.Board().fen()
+            self.active_line_card = None
+            self.editing_card = None
+            self.edit_dirty = False
             self.draw_board()
             return
 
@@ -1133,6 +1165,12 @@ class ChessMvpApp:
         self.animate_correct_move_square(move.to_square)
 
     def view_repertoire(self) -> None:
+        if self.mode in {"view", "edit"}:
+            self.mode = "play"
+            self.active_line_card = None
+            self.editing_card = None
+            self.edit_dirty = False
+            self.draw_board()
         cards = self.load_repertoire()
         self.clear_right_body()
         self.right_title.configure(text="Saved Repertoire")
@@ -1166,7 +1204,8 @@ class ChessMvpApp:
                 index = self.render_opening_section(list_frame, opening, opening_cards, index)
                 opening_count += 1
 
-        self.status.set(f"Viewing {len(cards)} moves in {opening_count} collapsed opening(s)")
+        self.restore_repertoire_scroll_position()
+        self.status.set(f"Viewing {len(cards)} moves in {opening_count} opening(s)")
 
     def render_opening_section(
         self,
@@ -1180,9 +1219,106 @@ class ChessMvpApp:
 
         content = ttk.Frame(section, style="Panel.TFrame", padding=(10, 8, 0, 0))
         header = ttk.Button(section, style="Accordion.TButton")
+        state_key = (cards[0]["repertoire_id"], opening)
         header.configure(
             text=f"+  {opening} ({len(cards)})",
-            command=lambda: self.toggle_opening_section(header, content, opening, len(cards)),
+            command=lambda: self.toggle_opening_section(
+                header,
+                content,
+                opening,
+                len(cards),
+                state_key,
+            ),
+        )
+        header.pack(fill="x")
+
+        index = start_index
+        for variation, variation_cards in self.classification_groups(cards, "variation").items():
+            index = self.render_variation_section(
+                content,
+                variation,
+                variation_cards,
+                index,
+            )
+        self.restore_repertoire_section(header, content, opening, len(cards), state_key)
+        return index
+
+    def render_variation_section(
+        self,
+        parent: ttk.Frame,
+        variation: str,
+        cards: list[dict[str, str]],
+        start_index: int,
+    ) -> int:
+        section = ttk.Frame(parent, style="Panel.TFrame")
+        section.pack(fill="x", pady=(0, 6))
+
+        content = ttk.Frame(section, style="Panel.TFrame", padding=(12, 7, 0, 0))
+        header = ttk.Button(section, style="Accordion.TButton")
+        classification = self.classify_opening(cards[0])
+        state_key = (
+            cards[0]["repertoire_id"],
+            classification["opening"],
+            variation,
+        )
+        header.configure(
+            text=f"+  {variation} ({len(cards)})",
+            command=lambda: self.toggle_opening_section(
+                header,
+                content,
+                variation,
+                len(cards),
+                state_key,
+            ),
+        )
+        header.pack(fill="x")
+
+        subvariation_groups = self.classification_groups(cards, "subvariation")
+        has_named_subvariations = any(name != "Main line" for name in subvariation_groups)
+        index = start_index
+        if has_named_subvariations:
+            for subvariation, subvariation_cards in subvariation_groups.items():
+                index = self.render_subvariation_section(
+                    content,
+                    subvariation,
+                    subvariation_cards,
+                    index,
+                )
+        else:
+            for card in cards:
+                self.render_repertoire_row(content, index, card)
+                index += 1
+        self.restore_repertoire_section(header, content, variation, len(cards), state_key)
+        return index
+
+    def render_subvariation_section(
+        self,
+        parent: ttk.Frame,
+        subvariation: str,
+        cards: list[dict[str, str]],
+        start_index: int,
+    ) -> int:
+        section = ttk.Frame(parent, style="Panel.TFrame")
+        section.pack(fill="x", pady=(0, 6))
+
+        content = ttk.Frame(section, style="Panel.TFrame", padding=(12, 7, 0, 0))
+        header = ttk.Button(section, style="Accordion.TButton")
+        classification = self.classify_opening(cards[0])
+        state_key = (
+            cards[0]["repertoire_id"],
+            classification["opening"],
+            classification["variation"] or "Main line",
+            subvariation,
+        )
+        header.configure(
+            text=f"+  {subvariation} ({len(cards)})",
+            command=lambda: self.toggle_opening_section(
+                header,
+                content,
+                subvariation,
+                len(cards),
+                state_key,
+            ),
         )
         header.pack(fill="x")
 
@@ -1190,6 +1326,7 @@ class ChessMvpApp:
         for card in cards:
             self.render_repertoire_row(content, index, card)
             index += 1
+        self.restore_repertoire_section(header, content, subvariation, len(cards), state_key)
         return index
 
     def toggle_opening_section(
@@ -1198,13 +1335,30 @@ class ChessMvpApp:
         content: ttk.Frame,
         opening: str,
         count: int,
+        state_key: tuple[str, ...] | None = None,
     ) -> None:
         if content.winfo_manager():
             content.pack_forget()
             header.configure(text=f"+  {opening} ({count})")
+            if state_key is not None:
+                self.repertoire_expanded_sections.discard(state_key)
         else:
             content.pack(fill="x")
             header.configure(text=f"-  {opening} ({count})")
+            if state_key is not None:
+                self.repertoire_expanded_sections.add(state_key)
+
+    def restore_repertoire_section(
+        self,
+        header: ttk.Button,
+        content: ttk.Frame,
+        label: str,
+        count: int,
+        state_key: tuple[str, ...],
+    ) -> None:
+        if state_key in self.repertoire_expanded_sections:
+            content.pack(fill="x")
+            header.configure(text=f"-  {label} ({count})")
 
     def render_repertoire_row(self, parent: ttk.Frame, index: int, card: dict[str, str]) -> None:
         row = ttk.Frame(parent, style="Panel.TFrame", padding=(0, 0, 0, 8))
@@ -1226,10 +1380,16 @@ class ChessMvpApp:
             row=1, column=0, sticky="ew", padx=(0, 8), pady=(2, 0)
         )
         ttk.Button(row, text="Details", width=8, command=lambda r=row, c=card: self.toggle_repertoire_details(r, c)).grid(
-            row=0, column=1, rowspan=2, padx=(0, 6)
+            row=0, column=1, padx=(0, 6), pady=(0, 3)
         )
         ttk.Button(row, text="Remove", width=7, command=lambda c=card: self.remove_card_answer(c)).grid(
-            row=0, column=2, rowspan=2
+            row=0, column=2, pady=(0, 3)
+        )
+        ttk.Button(row, text="View", width=8, command=lambda c=card: self.open_repertoire_card(c, "view")).grid(
+            row=1, column=1, padx=(0, 6), pady=(3, 0)
+        )
+        ttk.Button(row, text="Edit", width=7, command=lambda c=card: self.open_repertoire_card(c, "edit")).grid(
+            row=1, column=2, pady=(3, 0)
         )
 
     def toggle_repertoire_details(self, row: ttk.Frame, card: dict[str, str]) -> None:
@@ -1259,6 +1419,134 @@ class ChessMvpApp:
         )
         ttk.Label(details, text=detail_text, style="TLabel", wraplength=380, justify="left").pack(anchor="w")
         row.details_frame = details
+
+    def open_repertoire_card(self, card: dict, mode: str) -> None:
+        answers = card["accepted_moves"]
+        if len(answers) == 1:
+            selected = dict(card)
+            selected.update(answers[0])
+            self.load_repertoire_card(selected, mode)
+            return
+
+        chooser = tk.Toplevel(self.root)
+        chooser.title(f"Choose move to {mode}")
+        chooser.configure(bg=PANEL)
+        chooser.transient(self.root)
+        shell = ttk.Frame(chooser, style="Panel.TFrame", padding=16)
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text=f"Choose move to {mode}", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
+
+        def choose(answer: dict) -> None:
+            selected = dict(card)
+            selected.update(answer)
+            chooser.destroy()
+            self.load_repertoire_card(selected, mode)
+
+        for answer in answers:
+            ttk.Button(
+                shell,
+                text=f"{answer['move_san']} ({answer['move_uci']})",
+                command=lambda a=answer: choose(a),
+            ).pack(fill="x", pady=3)
+        ttk.Button(shell, text="Cancel", command=chooser.destroy).pack(fill="x", pady=(10, 0))
+        chooser.grab_set()
+
+    def pgn_move_history(self, pgn: str) -> tuple[str, list[dict[str, str]]]:
+        game = chess.pgn.read_game(io.StringIO(pgn))
+        if game is None:
+            raise ValueError("The saved PGN line could not be read")
+        board = game.board()
+        root_fen = board.fen()
+        history: list[dict[str, str]] = []
+        for move in game.mainline_moves():
+            if move not in board.legal_moves:
+                raise ValueError(f"Illegal move in saved PGN: {move.uci()}")
+            before_fen = board.fen()
+            san = board.san(move)
+            board.push(move)
+            history.append(
+                {
+                    "before_fen": before_fen,
+                    "after_fen": board.fen(),
+                    "move_uci": move.uci(),
+                    "move_san": san,
+                    "pgn": pgn,
+                }
+            )
+        return root_fen, history
+
+    def load_repertoire_card(self, card: dict, mode: str) -> None:
+        self.capture_repertoire_scroll_position()
+        try:
+            root_fen, history = self.pgn_move_history(card["pgn"])
+        except (ValueError, IndexError) as exc:
+            self.status.set(str(exc))
+            return
+        if not history:
+            self.status.set("The saved line contains no moves to view")
+            return
+
+        self.mode = mode
+        self.history_root_fen = root_fen
+        self.move_history = history
+        self.move_cursor = self.repertoire_line_start_cursor(mode, len(history))
+        self.manual_orientation = card["repertoire_color"]
+        self.active_line_card = card
+        self.editing_card = card if mode == "edit" else None
+        self.edit_dirty = False
+        self.clear_feedback()
+        self.clear_quiz_actions()
+        self.restore_board_to_cursor()
+        action = "Editing" if mode == "edit" else "Viewing"
+        self.status.set(f"{action} {card['move_san']} — use ← and → to navigate")
+
+    def repertoire_line_start_cursor(self, mode: str, move_count: int) -> int:
+        if mode == "view":
+            return move_count
+        return max(0, move_count - 1)
+
+    def return_to_repertoire(self) -> None:
+        self.mode = "play"
+        self.active_line_card = None
+        self.editing_card = None
+        self.edit_dirty = False
+        self.draw_board()
+        self.view_repertoire()
+
+    def save_edited_move(self) -> None:
+        card = self.editing_card
+        if self.mode != "edit" or card is None:
+            return
+        if not self.edit_dirty:
+            self.status.set("Make a change on the board before saving")
+            return
+        info = self.store.get(card["repertoire_id"])
+        if info is None:
+            self.status.set("The repertoire file could not be found")
+            return
+        moves = [
+            chess.Move.from_uci(entry["move_uci"])
+            for entry in self.move_history[: self.move_cursor]
+        ]
+        try:
+            self.store.replace_answer(
+                info,
+                card["position_key"],
+                card["move_uci"],
+                moves,
+            )
+        except (ValueError, OSError) as exc:
+            self.status.set(str(exc))
+            return
+
+        saved_move = self.move_history[self.move_cursor - 1]["move_san"]
+        self.mode = "play"
+        self.active_line_card = None
+        self.editing_card = None
+        self.edit_dirty = False
+        self.draw_board()
+        self.view_repertoire()
+        self.status.set(f"Saved edited move {saved_move} in {info.name}")
 
     def ellipsize(self, text: str, max_chars: int) -> str:
         return text if len(text) <= max_chars else f"{text[: max_chars - 1]}…"
@@ -1317,7 +1605,63 @@ class ChessMvpApp:
         }
 
     def update_pgn(self) -> None:
+        if self.mode in {"view", "edit"}:
+            self.show_repertoire_line_mode()
+            return
         self.show_text(self.current_pgn() or "Moves will appear here.", title="Live PGN")
+
+    def show_repertoire_line_mode(self) -> None:
+        editing = self.mode == "edit"
+        title = "Editing Saved Move" if editing else "Viewing Saved Move"
+        self.right_title.configure(text=title)
+        self.clear_right_body()
+
+        card = self.active_line_card
+        mode_text = "EDITING" if editing else "VIEWING"
+        mode_color = "#b45309" if editing else "#1d4ed8"
+        tk.Label(
+            self.right_body,
+            text=mode_text,
+            font=("Segoe UI", 13, "bold"),
+            bg=PANEL,
+            fg=mode_color,
+        ).pack(anchor="w", pady=(0, 6))
+        if card is not None:
+            ttk.Label(
+                self.right_body,
+                text=f"{card['repertoire_name']} — {card['move_san']}",
+                style="TLabel",
+            ).pack(anchor="w", pady=(0, 8))
+
+        text_box = tk.Text(
+            self.right_body,
+            width=42,
+            height=22,
+            wrap="word",
+            bg=PANEL,
+            fg=TEXT,
+            relief="flat",
+            font=("Segoe UI", 10),
+            padx=4,
+            pady=4,
+        )
+        text_box.insert("1.0", self.current_pgn() or "Starting position")
+        text_box.configure(state="disabled")
+        text_box.pack(fill="both", expand=True)
+
+        actions = ttk.Frame(self.right_body, style="Panel.TFrame")
+        actions.pack(fill="x", pady=(10, 0))
+        if editing:
+            ttk.Button(
+                actions,
+                text="Save changes",
+                style="Primary.TButton",
+                command=self.save_edited_move,
+                state="normal" if self.edit_dirty else "disabled",
+            ).pack(fill="x", pady=(0, 6))
+            ttk.Button(actions, text="Cancel editing", command=self.return_to_repertoire).pack(fill="x")
+        else:
+            ttk.Button(actions, text="Back to repertoire", command=self.return_to_repertoire).pack(fill="x")
 
     def current_pgn(self) -> str:
         exporter = chess.pgn.StringExporter(headers=False, variations=False, comments=False, columns=None)
@@ -1347,7 +1691,29 @@ class ChessMvpApp:
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        self.repertoire_scroll_canvas = canvas
         return scroll_frame
+
+    def capture_repertoire_scroll_position(self) -> None:
+        canvas = self.repertoire_scroll_canvas
+        if canvas is None or not canvas.winfo_exists():
+            return
+        view = canvas.yview()
+        if view:
+            self.repertoire_scroll_fraction = view[0]
+
+    def restore_repertoire_scroll_position(self) -> None:
+        canvas = self.repertoire_scroll_canvas
+        fraction = self.repertoire_scroll_fraction
+        if canvas is None:
+            return
+
+        def restore() -> None:
+            if canvas.winfo_exists():
+                canvas.update_idletasks()
+                canvas.yview_moveto(fraction)
+
+        self.root.after_idle(restore)
 
     def show_text(self, text: str, title: str | None = None) -> None:
         if title:

@@ -105,6 +105,51 @@ def merge_game_into(games: list[chess.pgn.Game], incoming: chess.pgn.Game) -> ch
     return target
 
 
+def trained_answer_choices(games: list[chess.pgn.Game]) -> dict[str, str]:
+    selected: dict[str, str] = {}
+
+    def collect(node: chess.pgn.GameNode, board: chess.Board) -> None:
+        key = position_key(board)
+        for child in node.variations:
+            if is_quiz_node(child):
+                selected[key] = child.move.uci()
+            next_board = board.copy(stack=False)
+            next_board.push(child.move)
+            collect(child, next_board)
+
+    for game in games:
+        collect(game, game.board())
+    return selected
+
+
+def enforce_single_answers(
+    games: list[chess.pgn.Game],
+    preferred: dict[str, str] | None = None,
+) -> int:
+    """Keep one trained move per normalized position; the latest move wins."""
+    selected = trained_answer_choices(games)
+    if preferred:
+        selected.update(preferred)
+
+    removed = 0
+
+    def remove_others(node: chess.pgn.GameNode, board: chess.Board) -> None:
+        nonlocal removed
+        key = position_key(board)
+        chosen_move = selected.get(key)
+        for child in node.variations:
+            if is_quiz_node(child) and child.move.uci() != chosen_move:
+                unmark_quiz_node(child)
+                removed += 1
+            next_board = board.copy(stack=False)
+            next_board.push(child.move)
+            remove_others(child, next_board)
+
+    for game in games:
+        remove_others(game, game.board())
+    return removed
+
+
 def _line_pgn(moves: list[chess.Move], root_board: chess.Board) -> str:
     game = chess.pgn.Game()
     if root_board.fen() != chess.Board().fen():
@@ -170,6 +215,7 @@ class RepertoireStore:
         games, errors = parse_pgn(info.path.read_text(encoding="utf-8"))
         if errors:
             raise ValueError("; ".join(errors))
+        enforce_single_answers(games)
         return games
 
     def _available_path(self, name: str, current: Path | None = None) -> Path:
@@ -184,6 +230,7 @@ class RepertoireStore:
             index += 1
 
     def _atomic_write(self, path: Path, games: list[chess.pgn.Game]) -> None:
+        enforce_single_answers(games)
         self.directory.mkdir(parents=True, exist_ok=True)
         handle, temp_name = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".tmp", dir=self.directory)
         try:
@@ -214,7 +261,7 @@ class RepertoireStore:
             info.path.unlink()
         return RepertoireInfo(new_path, name, info.color)
 
-    def add_line(self, info: RepertoireInfo, moves: list[chess.Move]) -> bool:
+    def add_line(self, info: RepertoireInfo, moves: list[chess.Move]) -> str:
         if not moves:
             raise ValueError("Play a move first")
         board = chess.Board()
@@ -239,8 +286,26 @@ class RepertoireStore:
             node = child if child is not None else node.add_variation(move)
         already_marked = is_quiz_node(node)
         mark_quiz_node(node)
+        target_board = chess.Board()
+        for move in moves[:-1]:
+            target_board.push(move)
+        replaced = enforce_single_answers(
+            games,
+            {position_key(target_board): moves[-1].uci()},
+        )
         self._atomic_write(info.path, games)
-        return not already_marked
+        if replaced:
+            return "replaced"
+        return "duplicate" if already_marked else "added"
+
+    def normalize(self, info: RepertoireInfo) -> int:
+        games, errors = parse_pgn(info.path.read_text(encoding="utf-8"))
+        if errors:
+            raise ValueError("; ".join(errors))
+        removed = enforce_single_answers(games)
+        if removed:
+            self._atomic_write(info.path, games)
+        return removed
 
     def compile(self, info: RepertoireInfo) -> list[dict]:
         grouped: dict[str, dict] = {}
@@ -331,6 +396,68 @@ class RepertoireStore:
             self._atomic_write(info.path, games)
         return removed
 
+    def replace_answer(
+        self,
+        info: RepertoireInfo,
+        key: str,
+        old_move_uci: str,
+        moves: list[chess.Move],
+    ) -> int:
+        if not moves:
+            raise ValueError("The edited line must contain at least one move")
+
+        board = chess.Board()
+        for move in moves:
+            if move not in board.legal_moves:
+                raise ValueError(f"Illegal move in edited line: {move.uci()}")
+            board.push(move)
+        final_color = not board.turn
+        if final_color != info.color:
+            raise ValueError(
+                f"The edited line must end with a {'White' if info.color else 'Black'} repertoire move"
+            )
+
+        games = self.read_games(info)
+        removed = 0
+        for game in games:
+            def visit(node: chess.pgn.GameNode, position: chess.Board) -> None:
+                nonlocal removed
+                if position_key(position) == key:
+                    for child in node.variations:
+                        if child.move.uci() == old_move_uci and is_quiz_node(child):
+                            unmark_quiz_node(child)
+                            removed += 1
+                for child in node.variations:
+                    next_position = position.copy(stack=False)
+                    next_position.push(child.move)
+                    visit(child, next_position)
+
+            visit(game, game.board())
+
+        if not removed:
+            raise ValueError("The saved repertoire move could not be found")
+
+        game = next((item for item in games if position_key(item.board()) == position_key(chess.Board())), None)
+        if game is None:
+            game = chess.pgn.Game()
+            game.headers.clear()
+            game.headers.update(_headers(info.name, info.color))
+            games.append(game)
+        node: chess.pgn.GameNode = game
+        for move in moves:
+            child = next((variation for variation in node.variations if variation.move == move), None)
+            node = child if child is not None else node.add_variation(move)
+        mark_quiz_node(node)
+        target_board = chess.Board()
+        for move in moves[:-1]:
+            target_board.push(move)
+        enforce_single_answers(
+            games,
+            {position_key(target_board): moves[-1].uci()},
+        )
+        self._atomic_write(info.path, games)
+        return removed
+
     def preview_import(self, text: str, color: bool) -> dict:
         games, errors = parse_pgn(text)
         has_marks = any(
@@ -348,6 +475,7 @@ class RepertoireStore:
         merged: list[chess.pgn.Game] = []
         for game in games:
             merge_game_into(merged, game)
+        enforce_single_answers(merged)
         if games:
             temp_info = RepertoireInfo(Path("preview.pgn"), "Preview", color)
             prompts = _compile_games_for_preview(merged, temp_info)
@@ -370,6 +498,7 @@ class RepertoireStore:
             raise ValueError("Cannot import invalid PGN")
         existing = next((info for info in self.list_repertoires() if info.name.casefold() == name.casefold()), None)
         incoming = preview["games"]
+        incoming_choices = trained_answer_choices(incoming)
         if existing and mode == "cancel":
             raise ValueError("Import cancelled")
         if existing and mode == "merge":
@@ -383,6 +512,7 @@ class RepertoireStore:
         else:
             games = incoming
             path = self._available_path(name)
+        enforce_single_answers(games, incoming_choices)
         _apply_headers(games, name, color)
         self._atomic_write(path, games)
         return RepertoireInfo(path, name, color)
