@@ -28,6 +28,36 @@ class RepertoireStoreTests(unittest.TestCase):
         self.assertEqual({"g1f3"}, prompts[0]["accepted_uci"])
         self.assertNotIn(QUIZ_MARK, info.path.read_text(encoding="utf-8").split("1. e4", 1)[0])
 
+    def test_combined_repertoire_accepts_and_orients_both_sides(self) -> None:
+        info = self.store.create("Full repertoire")
+
+        self.store.add_line(info, [chess.Move.from_uci("e2e4")])
+        self.store.add_line(
+            info,
+            [chess.Move.from_uci("e2e4"), chess.Move.from_uci("c7c5")],
+        )
+
+        prompts = self.store.compile(info)
+        self.assertIsNone(info.color)
+        self.assertEqual([chess.WHITE, chess.BLACK], [prompt["repertoire_color"] for prompt in prompts])
+        self.assertIn('[RepertoireColor "Both"]', info.path.read_text(encoding="utf-8"))
+
+    def test_combine_preserves_white_and_black_training_trees(self) -> None:
+        white = self.store.create("White", chess.WHITE)
+        black = self.store.create("Black", chess.BLACK)
+        self.store.add_line(white, [chess.Move.from_uci("d2d4")])
+        self.store.add_line(
+            black,
+            [chess.Move.from_uci("e2e4"), chess.Move.from_uci("c7c5")],
+        )
+
+        combined = self.store.combine("Complete", [white, black])
+        prompts = self.store.compile(combined)
+
+        self.assertIsNone(combined.color)
+        self.assertEqual({"d2d4", "c7c5"}, {prompt["move_uci"] for prompt in prompts})
+        self.assertEqual({chess.WHITE, chess.BLACK}, {prompt["repertoire_color"] for prompt in prompts})
+
     def test_new_reply_replaces_the_previous_reply_from_same_position(self) -> None:
         info = self.store.create("First Moves", chess.WHITE)
         self.assertEqual("added", self.store.add_line(info, [chess.Move.from_uci("e2e4")]))

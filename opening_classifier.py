@@ -42,6 +42,7 @@ class OpeningMatch:
 
     def opening_fields(self) -> dict[str, str]:
         return {
+            "eco": self.eco,
             "opening": self.opening,
             "variation": self.variation,
             "subvariation": self.subvariation,

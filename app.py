@@ -1,6 +1,5 @@
 ﻿import tkinter as tk
 import io
-import random
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -39,7 +38,7 @@ PIECES = {
 class ChessMvpApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Chess Repertoire MVP")
+        self.root.title("Chess Repertoire Memorizer")
         self.root.configure(bg=BG)
         self.configure_style()
 
@@ -61,11 +60,12 @@ class ChessMvpApp:
         self.quiz_dialog: tk.Toplevel | None = None
         self.quiz_index = 0
         self.quiz_score = 0
-        self.quiz_marks: list[dict] = []
         self.quiz_results: list[dict] = []
         self.quiz_round_summaries: list[tuple[int, int]] = []
         self.quiz_attempt_counts: dict[str, int] = {}
         self.last_missed_cards: list[dict] = []
+        self.quiz_input_enabled = False
+        self.quiz_animation_serial = 0
         self.manual_orientation = chess.WHITE
         self.orientation_turn: bool | None = None
         self.selected_square: chess.Square | None = None
@@ -102,6 +102,55 @@ class ChessMvpApp:
 
         board_frame = ttk.Frame(root, padding=8, style="Panel.TFrame")
         board_frame.grid(row=0, column=1, padx=6, pady=12)
+        self.quiz_title_card = tk.Frame(
+            board_frame,
+            width=BOARD_SIZE,
+            height=106,
+            bg="#111827",
+            highlightthickness=1,
+            highlightbackground="#c9a227",
+        )
+        self.quiz_title_card.pack_propagate(False)
+        tk.Frame(self.quiz_title_card, width=5, bg="#c9a227").pack(side="left", fill="y")
+        title_copy = tk.Frame(self.quiz_title_card, bg="#111827", padx=16, pady=10)
+        title_copy.pack(side="left", fill="both", expand=True)
+        self.quiz_title_kicker = tk.Label(
+            title_copy,
+            text="OPENING STUDY",
+            font=("Segoe UI", 8, "bold"),
+            bg="#111827",
+            fg="#d6b84b",
+            anchor="w",
+        )
+        self.quiz_title_kicker.pack(fill="x")
+        self.quiz_title_name = tk.Label(
+            title_copy,
+            text="",
+            font=("Georgia", 17, "bold"),
+            bg="#111827",
+            fg="#f9fafb",
+            anchor="w",
+        )
+        self.quiz_title_name.pack(fill="x", pady=(1, 0))
+        self.quiz_title_branch = tk.Label(
+            title_copy,
+            text="",
+            font=("Segoe UI", 10, "bold"),
+            bg="#111827",
+            fg="#d1d5db",
+            anchor="w",
+        )
+        self.quiz_title_branch.pack(fill="x", pady=(2, 0))
+        self.quiz_title_progress = tk.Label(
+            self.quiz_title_card,
+            text="",
+            font=("Segoe UI", 9, "bold"),
+            bg="#111827",
+            fg="#9ca3af",
+            padx=14,
+            justify="right",
+        )
+        self.quiz_title_progress.pack(side="right", fill="y")
         self.canvas = tk.Canvas(board_frame, width=BOARD_SIZE, height=BOARD_SIZE, highlightthickness=0, bg=PANEL)
         self.canvas.pack()
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
@@ -147,11 +196,16 @@ class ChessMvpApp:
             fg=TEXT,
         )
         self.feedback_label.pack()
-        self.quiz_marks_frame = tk.Frame(
+        self.quiz_counter = tk.StringVar(value="")
+        self.quiz_counter_label = tk.Label(
             feedback_frame,
+            textvariable=self.quiz_counter,
+            width=14,
+            font=("Segoe UI", 10, "bold"),
             bg=BG,
+            fg=MUTED,
         )
-        self.quiz_marks_frame.pack(pady=(2, 0))
+        self.quiz_counter_label.pack(pady=(2, 0))
         self.quiz_actions_frame = tk.Frame(feedback_frame, bg=BG)
         self.quiz_actions_frame.pack(pady=(8, 0))
 
@@ -208,7 +262,7 @@ class ChessMvpApp:
         return 7 - file_index, rank
 
     def current_orientation(self) -> bool:
-        if self.mode in {"quiz", "replay"}:
+        if self.mode == "quiz":
             return self.orientation_turn if self.orientation_turn is not None else self.board.turn
         return self.manual_orientation
 
@@ -225,6 +279,8 @@ class ChessMvpApp:
         self.draw_board()
 
     def on_mouse_down(self, event: tk.Event) -> None:
+        if self.mode == "quiz" and not self.quiz_input_enabled:
+            return
         clicked_square = self.event_to_square(event)
         if clicked_square is None:
             return
@@ -274,8 +330,10 @@ class ChessMvpApp:
     def try_move(self, from_square: chess.Square, to_square: chess.Square) -> None:
         if self.mode not in {"play", "edit", "quiz"}:
             return
+        if self.mode == "quiz" and not self.quiz_input_enabled:
+            return
 
-        move = chess.Move(from_square, to_square)
+        move = self.normalize_user_move(from_square, to_square)
         if self.is_promotion_move(move):
             move = chess.Move(from_square, to_square, promotion=chess.QUEEN)
 
@@ -314,6 +372,36 @@ class ChessMvpApp:
         self.selected_square = None
         self.draw_board()
         self.update_pgn()
+
+    def normalize_user_move(
+        self,
+        from_square: chess.Square,
+        to_square: chess.Square,
+    ) -> chess.Move:
+        """Resolve a clear castling gesture to chess's exact king destination."""
+        move = chess.Move(from_square, to_square)
+        piece = self.board.piece_at(from_square)
+        if (
+            piece is None
+            or piece.piece_type != chess.KING
+            or piece.color != self.board.turn
+            or chess.square_rank(from_square) != chess.square_rank(to_square)
+            or abs(chess.square_file(to_square) - chess.square_file(from_square)) < 2
+        ):
+            return move
+
+        gesture_direction = 1 if to_square > from_square else -1
+        for legal_move in self.board.legal_moves:
+            if (
+                legal_move.from_square == from_square
+                and self.board.is_castling(legal_move)
+                and (
+                    1 if chess.square_file(legal_move.to_square) > chess.square_file(from_square) else -1
+                )
+                == gesture_direction
+            ):
+                return legal_move
+        return move
 
     def back_move(self) -> None:
         if self.mode not in {"play", "view", "edit"} or self.move_cursor == 0:
@@ -394,7 +482,12 @@ class ChessMvpApp:
                     center_y = y1 + SQUARE_SIZE / 2
                     image = self.piece_images.get(piece.symbol())
                     if image:
-                        self.canvas.create_image(center_x, center_y, image=image, tags=("piece",))
+                        self.canvas.create_image(
+                            center_x,
+                            center_y,
+                            image=image,
+                            tags=("piece", f"piece-{square}"),
+                        )
                     else:
                         white_symbol, black_symbol = PIECES[piece.piece_type]
                         symbol = white_symbol if piece.color == chess.WHITE else black_symbol
@@ -403,7 +496,7 @@ class ChessMvpApp:
                             center_y,
                             text=symbol,
                             font=("Segoe UI", 36, "bold"),
-                            tags=("piece",),
+                            tags=("piece", f"piece-{square}"),
                         )
 
     def update_navigation_buttons(self) -> None:
@@ -440,7 +533,7 @@ class ChessMvpApp:
         previous = self.current_repertoire()
         self.repertoire_by_label = {}
         for info in self.store.list_repertoires():
-            side = "White" if info.color else "Black"
+            side = "Both sides" if info.color is None else ("White" if info.color else "Black")
             label = f"{info.name} ({side})"
             self.repertoire_by_label[label] = info
         labels = list(self.repertoire_by_label)
@@ -462,14 +555,7 @@ class ChessMvpApp:
         name = simpledialog.askstring("New repertoire", "Repertoire name:", parent=self.root)
         if not name or not name.strip():
             return
-        white = messagebox.askyesnocancel(
-            "Repertoire color",
-            "Train White moves?\n\nYes = White, No = Black",
-            parent=self.root,
-        )
-        if white is None:
-            return
-        info = self.store.create(name.strip(), white)
+        info = self.store.create(name.strip())
         self.refresh_repertoire_selector(info.id)
         self.status.set(f"Created {info.name}")
 
@@ -508,7 +594,13 @@ class ChessMvpApp:
         ttk.Entry(fields, textvariable=name_var).grid(row=0, column=1, sticky="ew", padx=(0, 12))
         ttk.Label(fields, text="Train").grid(row=0, column=2, sticky="w", padx=(0, 6))
         color_var = tk.StringVar(value="White")
-        ttk.Combobox(fields, textvariable=color_var, values=("White", "Black"), state="readonly", width=8).grid(
+        ttk.Combobox(
+            fields,
+            textvariable=color_var,
+            values=("White", "Black", "Both"),
+            state="readonly",
+            width=8,
+        ).grid(
             row=0, column=3
         )
         fields.columnconfigure(1, weight=1)
@@ -520,6 +612,11 @@ class ChessMvpApp:
 
         preview_state: dict[str, object] = {"preview": None, "source": "", "color": ""}
         import_button = ttk.Button(shell, text="Import", style="Primary.TButton", state="disabled")
+
+        def selected_training_color() -> bool | None:
+            if color_var.get() == "Both":
+                return None
+            return color_var.get() == "White"
 
         def load_file() -> None:
             filename = filedialog.askopenfilename(
@@ -546,7 +643,7 @@ class ChessMvpApp:
             if not content:
                 summary_var.set("Paste or load PGN text first.")
                 return
-            result = self.store.preview_import(content, color_var.get() == "White")
+            result = self.store.preview_import(content, selected_training_color())
             preview_state["preview"] = result
             preview_state["source"] = content
             preview_state["color"] = color_var.get()
@@ -554,7 +651,12 @@ class ChessMvpApp:
                 summary_var.set("Cannot import: " + "; ".join(result["errors"][:3]))
                 import_button.configure(state="disabled")
                 return
-            mark_note = "existing CRM quiz marks" if result["used_existing_marks"] else f"all {color_var.get()} moves"
+            if result["used_existing_marks"]:
+                mark_note = "existing CRM quiz marks"
+            elif color_var.get() == "Both":
+                mark_note = "all moves for both sides"
+            else:
+                mark_note = f"all {color_var.get()} moves"
             summary_var.set(
                 f"{result['game_count']} game(s), {result['root_count']} root tree(s), "
                 f"{result['prompt_count']} prompts, {result['answer_count']} answers; using {mark_note}."
@@ -586,7 +688,7 @@ class ChessMvpApp:
                     return
                 mode = "merge" if choice else "replace"
             try:
-                info = self.store.import_preview(result, name, color_var.get() == "White", mode)
+                info = self.store.import_preview(result, name, selected_training_color(), mode)
             except (ValueError, OSError) as exc:
                 messagebox.showerror("Import failed", str(exc), parent=dialog)
                 return
@@ -647,13 +749,15 @@ class ChessMvpApp:
         self.quiz_source_cards = []
         self.quiz_index = 0
         self.quiz_score = 0
-        self.quiz_marks = []
         self.quiz_results = []
         self.quiz_round_summaries = []
         self.quiz_attempt_counts = {}
         self.last_missed_cards = []
-        self.update_quiz_marks()
+        self.quiz_input_enabled = False
+        self.quiz_animation_serial += 1
+        self.update_quiz_counter()
         self.clear_quiz_actions()
+        self.hide_quiz_title_card()
         self.orientation_turn = None
         self.selected_square = None
         self.dragging_square = None
@@ -669,7 +773,7 @@ class ChessMvpApp:
         return card.get("prompt_id", f"{card.get('repertoire_id', 'unknown')}:{card['before_fen']}")
 
     def classify_opening(self, card: dict[str, str]) -> dict[str, str]:
-        fields = ("opening", "variation", "subvariation")
+        fields = ("eco", "opening", "variation", "subvariation")
         stored = {key: card.get(key, "") for key in fields}
         if stored["opening"]:
             return stored
@@ -686,7 +790,287 @@ class ChessMvpApp:
 
     def opening_label(self, card: dict[str, str]) -> str:
         classification = self.classify_opening(card)
-        return " > ".join(value for value in classification.values() if value)
+        opening = classification["opening"]
+        if classification["eco"]:
+            opening = f"{classification['eco']} · {opening}"
+        return " > ".join(
+            value
+            for value in (opening, classification["variation"], classification["subvariation"])
+            if value
+        )
+
+    def opening_path(self, card: dict[str, str]) -> tuple[str, ...]:
+        classification = self.classify_opening(card)
+        return tuple(
+            value
+            for value in (
+                classification["opening"],
+                classification["variation"],
+                classification["subvariation"],
+            )
+            if value
+        )
+
+    @staticmethod
+    def path_is_within(path: tuple[str, ...], parent: tuple[str, ...]) -> bool:
+        return len(path) >= len(parent) and path[: len(parent)] == parent
+
+    @staticmethod
+    def path_contains_labels(path: tuple[str, ...], labels: tuple[str, ...]) -> bool:
+        """Return whether labels occur in order, allowing catalog transitions between them."""
+        if not labels:
+            return True
+        label_index = 0
+        for value in path:
+            if value == labels[label_index]:
+                label_index += 1
+                if label_index == len(labels):
+                    return True
+        return False
+
+    def study_nodes(
+        self,
+        cards: list[dict],
+        family_paths: list[tuple[str, ...]] | None = None,
+        move_paths: list[tuple[str, ...]] | None = None,
+    ) -> list[tuple[str, bool, tuple[str, ...]]]:
+        """Return move-prefix family nodes in repertoire/PGN encounter order."""
+        nodes: list[tuple[str, bool, tuple[str, ...]]] = []
+        seen: set[tuple[str, bool, tuple[str, ...]]] = set()
+        if move_paths is None:
+            move_paths = [tuple(self.pgn_uci_moves(card.get("pgn", ""))) for card in cards]
+        if family_paths is None:
+            family_paths = self.study_family_paths(cards, move_paths)
+        for index, (card, path) in enumerate(zip(cards, family_paths)):
+            if not self.study_card_is_eligible(cards, move_paths, index):
+                continue
+            for depth in range(1, len(path) + 1):
+                node = (card["repertoire_id"], card["repertoire_color"], path[:depth])
+                if node not in seen:
+                    seen.add(node)
+                    nodes.append(node)
+        return nodes
+
+    @staticmethod
+    def study_card_is_eligible(
+        cards: list[dict],
+        move_paths: list[tuple[str, ...]],
+        index: int,
+    ) -> bool:
+        """Keep prompts that have context, plus true standalone first-move studies."""
+        if len(move_paths[index]) >= 2:
+            return True
+        card = cards[index]
+        scope = (card.get("repertoire_id"), card.get("repertoire_color"))
+        return not any(
+            other_index != index
+            and (other.get("repertoire_id"), other.get("repertoire_color")) == scope
+            and len(move_paths[other_index]) > len(move_paths[index])
+            and move_paths[other_index][: len(move_paths[index])] == move_paths[index]
+            for other_index, other in enumerate(cards)
+        )
+
+    def study_family_paths(
+        self,
+        cards: list[dict],
+        move_paths: list[tuple[str, ...]] | None = None,
+    ) -> list[tuple[str, ...]]:
+        """Build opening lineages from saved-move ancestry, not ECO equality.
+
+        Opening catalogs rename positions as a line develops. A move can be
+        classified as Old Sicilian, for example, immediately before the same
+        PGN branch becomes the Open Sicilian and then the Accelerated Dragon.
+        Prefix ancestry preserves that real sequence in the study tree.
+        """
+        if move_paths is None:
+            move_paths = [
+                tuple(self.pgn_uci_moves(card.get("pgn", "")))
+                for card in cards
+            ]
+        family_paths: list[tuple[str, ...]] = []
+        for index, card in enumerate(cards):
+            scope = (card.get("repertoire_id"), card.get("repertoire_color"))
+            ancestors = [
+                other_index
+                for other_index, other in enumerate(cards)
+                if other_index != index
+                and (other.get("repertoire_id"), other.get("repertoire_color")) == scope
+                and len(move_paths[other_index]) >= 2
+                and len(move_paths[other_index]) < len(move_paths[index])
+                and move_paths[index][: len(move_paths[other_index])] == move_paths[other_index]
+            ]
+            ancestors.sort(key=lambda other_index: (len(move_paths[other_index]), other_index))
+
+            lineage: list[str] = []
+            for relative_index in ancestors + [index]:
+                for label in self.opening_path(cards[relative_index]):
+                    if label not in lineage:
+                        lineage.append(label)
+            family_paths.append(tuple(lineage))
+        return family_paths
+
+    def study_cards_for_path(
+        self,
+        cards: list[dict],
+        repertoire_id: str,
+        study_path: tuple[str, ...],
+        repertoire_color: bool | None = None,
+        family_paths: list[tuple[str, ...]] | None = None,
+        move_paths: list[tuple[str, ...]] | None = None,
+    ) -> list[dict]:
+        """Return the sequential ancestor/descendant moves for a family branch."""
+        if move_paths is None:
+            move_paths = [
+                tuple(self.pgn_uci_moves(card.get("pgn", "")))
+                for card in cards
+            ]
+        if family_paths is None:
+            family_paths = self.study_family_paths(cards, move_paths)
+        eligible_indexes = {
+            index
+            for index in range(len(cards))
+            if self.study_card_is_eligible(cards, move_paths, index)
+        }
+        target_indexes = {
+            index
+            for index, (card, family_path) in enumerate(zip(cards, family_paths))
+            if card["repertoire_id"] == repertoire_id
+            and (repertoire_color is None or card["repertoire_color"] == repertoire_color)
+            and index in eligible_indexes
+            and (
+                self.path_is_within(family_path, study_path)
+                or self.path_contains_labels(family_path, study_path)
+            )
+        }
+        return [
+            card
+            for index, card in enumerate(cards)
+            if card["repertoire_id"] == repertoire_id
+            and (repertoire_color is None or card["repertoire_color"] == repertoire_color)
+            and (
+                index in target_indexes
+                or any(
+                    index in eligible_indexes
+                    and
+                    len(move_paths[index]) < len(move_paths[target_index])
+                    and move_paths[target_index][: len(move_paths[index])] == move_paths[index]
+                    for target_index in target_indexes
+                )
+            )
+        ]
+
+    def prepare_quiz_cards(self, cards: list[dict]) -> list[dict]:
+        prepared = [dict(card) for card in cards]
+        block_paths: list[tuple[str, ...]] = []
+        for card in prepared:
+            path = tuple(card["_study_path"]) if "_study_path" in card else self.opening_path(card)
+            card["_study_path"] = path
+            if not block_paths or block_paths[-1] != path:
+                block_paths.append(path)
+
+        block_count = len(block_paths)
+        cursor = 0
+        for block_index, path in enumerate(block_paths, 1):
+            start = cursor
+            while cursor < len(prepared) and tuple(prepared[cursor]["_study_path"]) == path:
+                cursor += 1
+            block_total = cursor - start
+            for local_index in range(start, cursor):
+                prepared[local_index]["_study_block_index"] = block_index
+                prepared[local_index]["_study_block_count"] = block_count
+                prepared[local_index]["_study_position"] = local_index - start + 1
+                prepared[local_index]["_study_total"] = block_total
+        return prepared
+
+    def quiz_context_label(self, card: dict) -> str:
+        moves = self.pgn_uci_moves(card.get("pgn", ""))[:-1]
+        if not moves:
+            return "Starting position"
+        board = chess.Board()
+        label = ""
+        for text in moves:
+            move = chess.Move.from_uci(text)
+            if move not in board.legal_moves:
+                return "Saved position"
+            san = board.san(move)
+            label = f"{board.fullmove_number}. {san}" if board.turn else f"{board.fullmove_number}... {san}"
+            board.push(move)
+        return f"After {label}"
+
+    def show_quiz_title_card(self, card: dict) -> None:
+        classification = self.classify_opening(card)
+        title = self.specific_opening_title(classification)
+        hierarchy = "  ›  ".join(
+            value
+            for value in (
+                classification["opening"],
+                classification["variation"],
+                classification["subvariation"],
+            )
+            if value
+        )
+        side = "WHITE" if card.get("repertoire_color") else "BLACK"
+        context = self.quiz_context_label(card)
+        eco = classification["eco"] or "—"
+        self.quiz_title_kicker.configure(text=f"♞  {side} REPERTOIRE  •  ECO {eco}  •  {context.upper()}")
+        self.quiz_title_name.configure(text=self.ellipsize(title, 34))
+        self.quiz_title_branch.configure(
+            text=self.ellipsize(f"Opening family: {hierarchy or 'Unclassified position'}", 58)
+        )
+        self.quiz_title_progress.configure(
+            text=(
+                f"TREE {card.get('_study_block_index', 1)} / {card.get('_study_block_count', 1)}\n"
+                f"MOVE {card.get('_study_position', 1)} / {card.get('_study_total', 1)}"
+            )
+        )
+        if not self.quiz_title_card.winfo_manager():
+            self.quiz_title_card.pack(fill="x", pady=(0, 8), before=self.canvas)
+
+    @staticmethod
+    def specific_opening_title(classification: dict[str, str]) -> str:
+        """Choose the deepest useful opening name for the prominent headline."""
+        opening = classification.get("opening", "")
+        variation = classification.get("variation", "")
+        subvariation = classification.get("subvariation", "")
+        specific = subvariation or variation or opening or "Opening study"
+        if specific.casefold() in {"main line", "main variation"}:
+            parent = variation if subvariation else opening
+            if parent:
+                return f"{parent} — {specific}"
+        return specific
+
+    def hide_quiz_title_card(self) -> None:
+        self.show_live_opening_title_card()
+
+    def visible_opening(self) -> dict[str, str]:
+        moves = [entry["move_uci"] for entry in self.move_history[: self.move_cursor]]
+        return OPENING_CLASSIFIER.classify(moves).opening_fields()
+
+    def show_live_opening_title_card(self) -> None:
+        classification = self.visible_opening()
+        title = self.specific_opening_title(classification)
+        hierarchy = "  ›  ".join(
+            value
+            for value in (
+                classification["opening"],
+                classification["variation"],
+                classification["subvariation"],
+            )
+            if value
+        )
+        eco = classification["eco"] or "—"
+        turn = "WHITE" if self.board.turn else "BLACK"
+
+        self.quiz_title_kicker.configure(text=f"♞  LIVE OPENING  •  ECO {eco}")
+        self.quiz_title_name.configure(text=self.ellipsize(title, 34))
+        self.quiz_title_branch.configure(
+            text=self.ellipsize(f"Opening family: {hierarchy or 'Unclassified position'}", 58)
+        )
+        self.quiz_title_progress.configure(
+            text=f"MOVE {self.board.fullmove_number}\n{turn} TO MOVE"
+        )
+        if not self.quiz_title_card.winfo_manager():
+            self.quiz_title_card.pack(fill="x", pady=(0, 8), before=self.canvas)
 
     def classification_groups(
         self,
@@ -699,9 +1083,28 @@ class ChessMvpApp:
             groups.setdefault(label, []).append(card)
         return groups
 
-    def repertoire_sort_key(self, card: dict[str, str]) -> tuple[str, str, str, int, str]:
+    def eco_descriptor(self, cards: list[dict[str, str]]) -> str:
+        codes = list(
+            dict.fromkeys(
+                classification["eco"]
+                for card in cards
+                if (classification := self.classify_opening(card))["eco"]
+            )
+        )
+        return f"ECO {', '.join(codes)}" if codes else "ECO not identified"
+
+    def hierarchy_label(
+        self,
+        name: str,
+        cards: list[dict[str, str]],
+        count: int | None = None,
+    ) -> str:
+        return f"{name} ({len(cards) if count is None else count})  ·  {self.eco_descriptor(cards)}"
+
+    def repertoire_sort_key(self, card: dict[str, str]) -> tuple[str, str, str, str, int, str]:
         classification = self.classify_opening(card)
         return (
+            classification["eco"],
             classification["opening"],
             classification["variation"],
             classification["subvariation"],
@@ -734,25 +1137,63 @@ class ChessMvpApp:
         self.show_quiz_selector(cards)
 
     def show_quiz_selector(self, cards: list[dict]) -> None:
-        opening_groups: dict[tuple[str, str], list[dict]] = {}
-        for card in cards:
-            key = (card["repertoire_id"], self.opening_label(card))
-            opening_groups.setdefault(key, []).append(card)
+        move_paths = [
+            tuple(self.pgn_uci_moves(card.get("pgn", "")))
+            for card in cards
+        ]
+        family_paths = self.study_family_paths(cards, move_paths)
+        family_path_by_card = {
+            id(card): family_path
+            for card, family_path in zip(cards, family_paths)
+        }
+        nodes = self.study_nodes(cards, family_paths, move_paths)
+        node_cards = {
+            node: self.study_cards_for_path(
+                cards,
+                node[0],
+                node[2],
+                node[1],
+                family_paths,
+                move_paths,
+            )
+            for node in nodes
+        }
+        node_label_cards = {
+            node: [
+                card
+                for card, family_path in zip(cards, family_paths)
+                if card["repertoire_id"] == node[0]
+                and card["repertoire_color"] == node[1]
+                and self.path_is_within(family_path, node[2])
+            ]
+            for node in nodes
+        }
 
         dialog = tk.Toplevel(self.root)
         self.quiz_dialog = dialog
-        dialog.title("Choose Quiz Openings")
+        dialog.title("Choose Opening Trees")
         dialog.configure(bg=PANEL)
         dialog.transient(self.root)
         dialog.resizable(False, True)
 
         shell = ttk.Frame(dialog, style="Panel.TFrame", padding=16)
         shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text="Choose Quiz Openings", style="Title.TLabel").pack(anchor="w", pady=(0, 12))
+        ttk.Label(shell, text="Choose Opening Trees", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            shell,
+            text=(
+                "Parent families start collapsed. Expand one to follow the actual saved "
+                "move sequence across ECO and opening-name changes; selecting a parent "
+                "includes every continuation below it."
+            ),
+            style="TLabel",
+            foreground=MUTED,
+            wraplength=440,
+        ).pack(anchor="w", pady=(4, 12))
 
         list_container = ttk.Frame(shell, style="Panel.TFrame")
         list_container.pack(fill="both", expand=True)
-        canvas = tk.Canvas(list_container, width=360, height=280, bg=PANEL, highlightthickness=0)
+        canvas = tk.Canvas(list_container, width=460, height=340, bg=PANEL, highlightthickness=0)
         scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
         choices = ttk.Frame(canvas, style="Panel.TFrame")
         window_id = canvas.create_window((0, 0), window=choices, anchor="nw")
@@ -762,43 +1203,141 @@ class ChessMvpApp:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        variables: dict[tuple[str, str], tk.BooleanVar] = {}
+        variables: dict[tuple[str, bool, tuple[str, ...]], tk.BooleanVar] = {
+            node: tk.BooleanVar(value=len(node[2]) == 1)
+            for node in nodes
+        }
         start_button = ttk.Button(shell, style="Primary.TButton")
 
+        def selected_nodes() -> list[tuple[str, bool, tuple[str, ...]]]:
+            selected = [node for node in nodes if variables[node].get()]
+            return [
+                node
+                for node in selected
+                if not any(
+                    other[:2] == node[:2]
+                    and len(other[2]) < len(node[2])
+                    and self.path_is_within(node[2], other[2])
+                    for other in selected
+                )
+            ]
+
         def update_start_button() -> None:
-            count = sum(len(opening_groups[key]) for key, variable in variables.items() if variable.get())
+            chosen = selected_nodes()
+            count = sum(len(node_cards[node]) for node in chosen)
             start_button.configure(
-                text=f"Play Selected Openings ({count})",
+                text=f"Study Selected Trees ({count} moves)",
                 state="normal" if count else "disabled",
             )
 
-        repertoire_ids = list(dict.fromkeys(card["repertoire_id"] for card in cards))
-        for repertoire_id in repertoire_ids:
-            side_keys = sorted((key for key in opening_groups if key[0] == repertoire_id), key=lambda key: key[1])
-            representative = opening_groups[side_keys[0]][0]
+        def toggle_node(chosen: tuple[str, bool, tuple[str, ...]]) -> None:
+            if variables[chosen].get():
+                chosen_repertoire, chosen_color, chosen_path = chosen
+                for other in nodes:
+                    if other == chosen or other[:2] != (chosen_repertoire, chosen_color):
+                        continue
+                    other_path = other[2]
+                    if self.path_is_within(other_path, chosen_path) or self.path_is_within(chosen_path, other_path):
+                        variables[other].set(False)
+            update_start_button()
+
+        repertoire_sides = list(
+            dict.fromkeys((card["repertoire_id"], card["repertoire_color"]) for card in cards)
+        )
+        for repertoire_id, repertoire_color in repertoire_sides:
+            side_nodes = [node for node in nodes if node[:2] == (repertoire_id, repertoire_color)]
+            representative = next(
+                card
+                for card in cards
+                if (card["repertoire_id"], card["repertoire_color"])
+                == (repertoire_id, repertoire_color)
+            )
             heading = representative["repertoire_name"]
-            side = "White" if representative["repertoire_color"] else "Black"
-            side_count = sum(len(opening_groups[key]) for key in side_keys)
+            side = "White" if repertoire_color else "Black"
+            side_count = len(
+                [
+                    card
+                    for card in cards
+                    if (card["repertoire_id"], card["repertoire_color"])
+                    == (repertoire_id, repertoire_color)
+                ]
+            )
             ttk.Label(
                 choices,
                 text=f"{heading} — {side} ({side_count})",
                 style="TLabel",
                 font=("Segoe UI", 11, "bold"),
             ).pack(fill="x", anchor="w", pady=(8, 4))
-            for key in side_keys:
-                opening = key[1]
-                variable = tk.BooleanVar(value=True)
-                variables[key] = variable
+            opening_roots = [node for node in side_nodes if len(node[2]) == 1]
+            for root_node in opening_roots:
+                root_path = root_node[2]
+                descendants = [
+                    node
+                    for node in side_nodes
+                    if len(node[2]) > 1 and self.path_is_within(node[2], root_path)
+                ]
+                root_row = ttk.Frame(choices, style="Panel.TFrame")
+                root_row.pack(fill="x", padx=(8, 0), pady=2)
+                child_frame = ttk.Frame(choices, style="Panel.TFrame")
+
+                if descendants:
+                    expand_button = ttk.Button(root_row, text="+", width=3)
+                    expand_button.pack(side="left", padx=(0, 4))
+
+                    def toggle_folder(
+                        row: ttk.Frame = root_row,
+                        folder: ttk.Frame = child_frame,
+                        button: ttk.Button = expand_button,
+                    ) -> None:
+                        if folder.winfo_manager():
+                            folder.pack_forget()
+                            button.configure(text="+")
+                        else:
+                            folder.pack(fill="x", after=row)
+                            button.configure(text="−")
+
+                    expand_button.configure(command=toggle_folder)
+                else:
+                    ttk.Label(root_row, text="", width=3, style="TLabel").pack(side="left", padx=(0, 4))
+
                 ttk.Checkbutton(
-                    choices,
-                    text=f"{opening} ({len(opening_groups[key])})",
-                    variable=variable,
-                    command=update_start_button,
-                ).pack(fill="x", anchor="w", padx=(10, 0), pady=3)
+                    root_row,
+                    text=self.hierarchy_label(
+                        root_path[0],
+                        node_label_cards[root_node],
+                        len(node_cards[root_node]),
+                    ),
+                    variable=variables[root_node],
+                    command=lambda n=root_node: toggle_node(n),
+                ).pack(side="left", fill="x", expand=True)
+
+                for node in descendants:
+                    path = node[2]
+                    depth = len(path)
+                    label = (
+                        f"Next family  ·  {path[-1]}"
+                        if depth == 2
+                        else f"Continuation  ·  {path[-1]}"
+                    )
+                    ttk.Checkbutton(
+                        child_frame,
+                        text=self.hierarchy_label(
+                            label,
+                            node_label_cards[node],
+                            len(node_cards[node]),
+                        ),
+                        variable=variables[node],
+                        command=lambda n=node: toggle_node(n),
+                    ).pack(
+                        fill="x",
+                        anchor="w",
+                        padx=(42 + ((depth - 2) * 22), 0),
+                        pady=3,
+                    )
 
         def set_all(selected: bool) -> None:
-            for variable in variables.values():
-                variable.set(selected)
+            for node, variable in variables.items():
+                variable.set(selected and len(node[2]) == 1)
             update_start_button()
 
         def close_dialog() -> None:
@@ -806,16 +1345,14 @@ class ChessMvpApp:
             dialog.destroy()
 
         def launch_quiz() -> None:
-            selected = {
-                key
-                for key, variable in variables.items()
-                if variable.get()
-            }
-            selected_cards = [
-                card
-                for card in cards
-                if (card["repertoire_id"], self.opening_label(card)) in selected
-            ]
+            selected = selected_nodes()
+            selected_cards: list[dict] = []
+            for node in selected:
+                for card in node_cards[node]:
+                    study_card = dict(card)
+                    study_card["_study_path"] = node[2]
+                    study_card["_family_path"] = family_path_by_card[id(card)]
+                    selected_cards.append(study_card)
             if not selected_cards:
                 return
             self.quiz_source_cards = selected_cards[:]
@@ -861,14 +1398,17 @@ class ChessMvpApp:
 
     def begin_quiz(self, cards: list[dict]) -> None:
         self.mode = "quiz"
-        self.quiz_cards = cards[:]
-        random.shuffle(self.quiz_cards)
+        # Cards arrive in PGN traversal order. Keeping that order makes every
+        # selected opening/variation play as one coherent tree instead of a
+        # shuffled stack of unrelated positions.
+        self.quiz_cards = self.prepare_quiz_cards(cards)
         self.quiz_index = 0
         self.quiz_score = 0
-        self.quiz_marks = []
         self.quiz_results = []
         self.last_missed_cards = []
-        self.update_quiz_marks()
+        self.quiz_input_enabled = False
+        self.quiz_animation_serial += 1
+        self.update_quiz_counter()
         self.clear_quiz_actions()
         self.clear_feedback()
         self.load_current_quiz_card()
@@ -879,6 +1419,8 @@ class ChessMvpApp:
         self.drag_item = None
 
         if self.quiz_index >= len(self.quiz_cards):
+            self.quiz_input_enabled = False
+            self.quiz_animation_serial += 1
             total = len(self.quiz_cards)
             missed_results = [result for result in self.quiz_results if not result["correct"]]
             self.last_missed_cards = [result["card"] for result in missed_results]
@@ -886,7 +1428,7 @@ class ChessMvpApp:
             self.mode = "play"
             self.show_feedback("✓", f"Quiz complete: {self.quiz_score}/{total}", SUCCESS)
             self.status.set(f"Quiz complete: {self.quiz_score}/{total}")
-            self.update_quiz_marks()
+            self.update_quiz_counter()
             self.show_quiz_summary()
             self.show_quiz_end_actions(has_misses=bool(self.last_missed_cards))
             self.board.reset()
@@ -898,34 +1440,198 @@ class ChessMvpApp:
             self.active_line_card = None
             self.editing_card = None
             self.edit_dirty = False
+            self.hide_quiz_title_card()
             self.draw_board()
             return
 
         card = self.quiz_cards[self.quiz_index]
-        self.orientation_turn = None
-        self.board = chess.Board(card["before_fen"])
-        self.status.set(f"Quiz {self.quiz_index + 1}/{len(self.quiz_cards)}: find a repertoire move")
+        self.quiz_input_enabled = False
+        self.quiz_animation_serial += 1
+        animation_serial = self.quiz_animation_serial
+        self.orientation_turn = card.get("repertoire_color", chess.Board(card["before_fen"]).turn)
+        setup_transition = self.quiz_setup_transition(card)
+        self.board = chess.Board(setup_transition[0] if setup_transition else card["before_fen"])
+        self.show_quiz_title_card(card)
+        study_path = tuple(card["_study_path"]) if "_study_path" in card else self.opening_path(card)
+        study_name = " > ".join(study_path)
+        self.status.set(
+            f"{study_name} — move {card.get('_study_position', 1)}/{card.get('_study_total', 1)}"
+        )
         self.show_text(
             "\n".join(
                 [
-                    "Quiz mode",
+                    "Opening tree drill",
                     "",
-                    f"Position {self.quiz_index + 1} of {len(self.quiz_cards)}",
+                    study_name,
+                    "",
+                    (
+                        f"Tree {card.get('_study_block_index', 1)} of "
+                        f"{card.get('_study_block_count', 1)}  •  "
+                        f"Move {card.get('_study_position', 1)} of {card.get('_study_total', 1)}"
+                    ),
                     "",
                     "Find an accepted repertoire move on the board.",
                 ]
-            )
+            ),
+            title="Opening Study",
         )
         self.draw_board()
+        if setup_transition:
+            _start_fen, setup_move = setup_transition
+            self.status.set(f"{study_name} — watch the preceding move")
+            self.animate_quiz_setup_move(
+                setup_move,
+                card["before_fen"],
+                animation_serial,
+            )
+        else:
+            self.quiz_input_enabled = True
+
+    def quiz_setup_transition(self, card: dict) -> tuple[str, chess.Move] | None:
+        """Return the position and final setup move immediately before a prompt."""
+        try:
+            game = chess.pgn.read_game(io.StringIO(card.get("pgn", "")))
+            if game is None:
+                return None
+            moves = list(game.mainline_moves())
+            # The final PGN move is the trained answer. The move before it is
+            # what an online opponent would have just played.
+            if len(moves) < 2:
+                return None
+            board = game.board()
+            for move in moves[:-2]:
+                if move not in board.legal_moves:
+                    return None
+                board.push(move)
+            setup_move = moves[-2]
+            if setup_move not in board.legal_moves:
+                return None
+            start_fen = board.fen(en_passant="legal")
+            board.push(setup_move)
+            expected = chess.Board(card["before_fen"])
+            if board.board_fen() != expected.board_fen() or board.turn != expected.turn:
+                return None
+            return start_fen, setup_move
+        except (KeyError, ValueError, IndexError):
+            return None
+
+    def animate_quiz_setup_move(
+        self,
+        move: chess.Move,
+        destination_fen: str,
+        animation_serial: int,
+        duration_ms: int = 320,
+    ) -> None:
+        """Animate the preceding move into the quiz position, then enable input."""
+        moving_parts = self.quiz_setup_animation_parts(move)
+        if not moving_parts:
+            self.board = chess.Board(destination_fen)
+            self.quiz_input_enabled = True
+            self.draw_board()
+            return
+
+        animated_items: list[tuple[int, float, float, float, float]] = []
+        for piece, from_square, to_square in moving_parts:
+            from_file, from_rank = self.square_to_display(from_square)
+            to_file, to_rank = self.square_to_display(to_square)
+            start_x = (from_file + 0.5) * SQUARE_SIZE
+            start_y = (from_rank + 0.5) * SQUARE_SIZE
+            end_x = (to_file + 0.5) * SQUARE_SIZE
+            end_y = (to_rank + 0.5) * SQUARE_SIZE
+            self.canvas.itemconfigure(f"piece-{from_square}", state="hidden")
+
+            image = self.piece_images.get(piece.symbol())
+            if image:
+                item = self.canvas.create_image(
+                    start_x,
+                    start_y,
+                    image=image,
+                    tags=("quiz-moving-piece",),
+                )
+            else:
+                white_symbol, black_symbol = PIECES[piece.piece_type]
+                symbol = white_symbol if piece.color == chess.WHITE else black_symbol
+                item = self.canvas.create_text(
+                    start_x,
+                    start_y,
+                    text=symbol,
+                    font=("Segoe UI", 36, "bold"),
+                    tags=("quiz-moving-piece",),
+                )
+            self.canvas.tag_raise(item)
+            animated_items.append((item, start_x, start_y, end_x, end_y))
+
+        frame_ms = 16
+        effective_duration = min(duration_ms, 180) if len(moving_parts) > 1 else duration_ms
+        frames = max(1, effective_duration // frame_ms)
+
+        def animate(frame: int) -> None:
+            if (
+                animation_serial != self.quiz_animation_serial
+                or self.mode != "quiz"
+                or self.quiz_index >= len(self.quiz_cards)
+            ):
+                self.canvas.delete("quiz-moving-piece")
+                return
+            if frame > frames:
+                self.board = chess.Board(destination_fen)
+                self.canvas.delete("quiz-moving-piece")
+                self.quiz_input_enabled = True
+                current = self.quiz_cards[self.quiz_index]
+                study_path = tuple(current.get("_study_path", self.opening_path(current)))
+                self.status.set(
+                    f"{' > '.join(study_path)} — your move "
+                    f"{current.get('_study_position', 1)}/{current.get('_study_total', 1)}"
+                )
+                self.draw_board()
+                return
+
+            progress = frame / frames
+            eased = 1 - ((1 - progress) ** 3)
+            for item, start_x, start_y, end_x, end_y in animated_items:
+                self.canvas.coords(
+                    item,
+                    start_x + ((end_x - start_x) * eased),
+                    start_y + ((end_y - start_y) * eased),
+                )
+            self.root.after(frame_ms, lambda: animate(frame + 1))
+
+        animate(0)
+
+    def quiz_setup_animation_parts(
+        self,
+        move: chess.Move,
+    ) -> list[tuple[chess.Piece, chess.Square, chess.Square]]:
+        """Return every piece that visibly moves, including the castling rook."""
+        piece = self.board.piece_at(move.from_square)
+        if piece is None or move not in self.board.legal_moves:
+            return []
+
+        parts = [(piece, move.from_square, move.to_square)]
+        if not self.board.is_castling(move):
+            return parts
+
+        before_rooks = self.board.pieces(chess.ROOK, piece.color)
+        after = self.board.copy(stack=False)
+        after.push(move)
+        after_rooks = after.pieces(chess.ROOK, piece.color)
+        rook_from = list(before_rooks - after_rooks)
+        rook_to = list(after_rooks - before_rooks)
+        if len(rook_from) == 1 and len(rook_to) == 1:
+            rook = self.board.piece_at(rook_from[0])
+            if rook is not None:
+                parts.append((rook, rook_from[0], rook_to[0]))
+        return parts
 
     def handle_quiz_move(self, move: chess.Move) -> None:
         card = self.quiz_cards[self.quiz_index]
+        self.quiz_input_enabled = False
         self.selected_square = None
         self.quiz_attempt_counts[self.card_key(card)] = self.quiz_attempt_counts.get(self.card_key(card), 0) + 1
 
         if move.uci() in card["accepted_uci"]:
             self.quiz_score += 1
-            self.add_quiz_result("✓", card, True, move.uci())
+            self.add_quiz_result(card, True)
             orientation_before_move = self.board.turn
             san = self.board.san(move)
             self.board.push(move)
@@ -940,7 +1646,7 @@ class ChessMvpApp:
         orientation_before_move = self.board.turn
         self.board.push(move)
         self.orientation_turn = orientation_before_move
-        self.add_quiz_result("✕", card, False, move.uci())
+        self.add_quiz_result(card, False)
         self.show_feedback("✕", f"Wrong. Correct move: {card['move_san']}", "#dc2626")
         self.status.set(f"Wrong. Correct move: {card['move_san']}")
         self.draw_board()
@@ -949,6 +1655,7 @@ class ChessMvpApp:
 
     def advance_quiz(self) -> None:
         self.clear_feedback()
+        self.quiz_input_enabled = False
         self.orientation_turn = None
         self.quiz_index += 1
         self.load_current_quiz_card()
@@ -1072,35 +1779,15 @@ class ChessMvpApp:
         self.feedback_label.configure(fg=color, font=("Segoe UI", 16, "bold"))
         self.feedback.set(f"{symbol} {message}")
 
-    def add_quiz_result(self, mark: str, card: dict, correct: bool, attempted_uci: str) -> None:
-        result = {
-            "mark": mark,
-            "card": card,
-            "correct": correct,
-            "attempted_uci": attempted_uci,
-            "replay_uci": attempted_uci if correct else card["move_uci"],
-        }
-        self.quiz_results.append(result)
-        self.quiz_marks.append(result)
-        self.update_quiz_marks()
+    def add_quiz_result(self, card: dict, correct: bool) -> None:
+        self.quiz_results.append({"card": card, "correct": correct})
+        self.update_quiz_counter()
 
-    def update_quiz_marks(self) -> None:
-        for child in self.quiz_marks_frame.winfo_children():
-            child.destroy()
-        for result in self.quiz_marks:
-            mark = result["mark"]
-            color = SUCCESS if mark == "✓" else "#dc2626"
-            label = tk.Label(
-                self.quiz_marks_frame,
-                text=mark,
-                font=("Segoe UI", 18, "bold"),
-                bg=BG,
-                fg=color,
-                cursor="hand2" if self.mode != "quiz" else "",
-            )
-            label.pack(side="left", padx=3)
-            if self.mode != "quiz":
-                label.bind("<Button-1>", lambda _event, r=result: self.replay_quiz_result(r))
+    def update_quiz_counter(self) -> None:
+        if not self.quiz_cards:
+            self.quiz_counter.set("")
+            return
+        self.quiz_counter.set(f"{len(self.quiz_results)} / {len(self.quiz_cards)}")
 
     def clear_feedback(self) -> None:
         self.feedback_label.configure(fg=TEXT, font=("Segoe UI", 13, "bold"))
@@ -1137,34 +1824,10 @@ class ChessMvpApp:
             attempts = self.quiz_attempt_counts.get(self.card_key(card), 0)
             lines.append(f"- {card['move_san']}: {attempts} attempt(s)")
 
-        lines.extend(["", "Click any check or X below to replay that saved move."])
         self.show_text("\n".join(lines))
 
-    def replay_quiz_result(self, result: dict) -> None:
-        card = result["card"]
-        self.mode = "replay"
-        self.clear_feedback()
-        self.clear_quiz_actions()
-        self.selected_square = None
-        self.dragging_square = None
-        self.board = chess.Board(card["before_fen"])
-        self.orientation_turn = self.board.turn
-        self.status.set(f"Replay: {card['move_san']}")
-        self.draw_board()
-        self.root.after(400, lambda c=card, u=result["replay_uci"]: self.finish_replay(c, u))
-
-    def finish_replay(self, card: dict, move_uci: str) -> None:
-        move = chess.Move.from_uci(move_uci)
-        if move not in self.board.legal_moves:
-            self.status.set("Replay failed: saved move is not legal from this FEN")
-            return
-        orientation_before_move = self.board.turn
-        self.board.push(move)
-        self.orientation_turn = orientation_before_move
-        self.draw_board()
-        self.animate_correct_move_square(move.to_square)
-
     def view_repertoire(self) -> None:
+        self.hide_quiz_title_card()
         if self.mode in {"view", "edit"}:
             self.mode = "play"
             self.active_line_card = None
@@ -1189,20 +1852,31 @@ class ChessMvpApp:
                 (card for card in cards if card["repertoire_id"] == repertoire_id), key=self.repertoire_sort_key
             )
             representative = repertoire_cards[0]
-            side = "White" if representative["repertoire_color"] else "Black"
             ttk.Label(
                 list_frame,
-                text=f"{representative['repertoire_name']} — {side} ({len(repertoire_cards)})",
+                text=f"{representative['repertoire_name']} ({len(repertoire_cards)})",
                 style="Title.TLabel",
             ).pack(
                 anchor="w", pady=(8 if index > 1 else 0, 10)
             )
-            opening_groups: dict[str, list[dict]] = {}
-            for card in repertoire_cards:
-                opening_groups.setdefault(card["opening"], []).append(card)
-            for opening, opening_cards in opening_groups.items():
-                index = self.render_opening_section(list_frame, opening, opening_cards, index)
-                opening_count += 1
+            for repertoire_color in (chess.WHITE, chess.BLACK):
+                side_cards = [
+                    card for card in repertoire_cards if card["repertoire_color"] == repertoire_color
+                ]
+                if not side_cards:
+                    continue
+                side = "White" if repertoire_color else "Black"
+                ttk.Label(
+                    list_frame,
+                    text=f"{side} repertoire ({len(side_cards)})",
+                    style="TLabel",
+                    font=("Segoe UI", 11, "bold"),
+                ).pack(anchor="w", pady=(6, 6))
+                for opening, opening_cards in self.classification_groups(
+                    side_cards, "opening"
+                ).items():
+                    index = self.render_opening_section(list_frame, opening, opening_cards, index)
+                    opening_count += 1
 
         self.restore_repertoire_scroll_position()
         self.status.set(f"Viewing {len(cards)} moves in {opening_count} opening(s)")
@@ -1219,14 +1893,15 @@ class ChessMvpApp:
 
         content = ttk.Frame(section, style="Panel.TFrame", padding=(10, 8, 0, 0))
         header = ttk.Button(section, style="Accordion.TButton")
-        state_key = (cards[0]["repertoire_id"], opening)
+        side_key = "White" if cards[0]["repertoire_color"] else "Black"
+        state_key = (cards[0]["repertoire_id"], side_key, opening)
+        label = self.hierarchy_label(opening, cards)
         header.configure(
-            text=f"+  {opening} ({len(cards)})",
+            text=f"+  {label}",
             command=lambda: self.toggle_opening_section(
                 header,
                 content,
-                opening,
-                len(cards),
+                label,
                 state_key,
             ),
         )
@@ -1240,7 +1915,7 @@ class ChessMvpApp:
                 variation_cards,
                 index,
             )
-        self.restore_repertoire_section(header, content, opening, len(cards), state_key)
+        self.restore_repertoire_section(header, content, label, state_key)
         return index
 
     def render_variation_section(
@@ -1258,16 +1933,17 @@ class ChessMvpApp:
         classification = self.classify_opening(cards[0])
         state_key = (
             cards[0]["repertoire_id"],
+            "White" if cards[0]["repertoire_color"] else "Black",
             classification["opening"],
             variation,
         )
+        label = self.hierarchy_label(variation, cards)
         header.configure(
-            text=f"+  {variation} ({len(cards)})",
+            text=f"+  {label}",
             command=lambda: self.toggle_opening_section(
                 header,
                 content,
-                variation,
-                len(cards),
+                label,
                 state_key,
             ),
         )
@@ -1288,7 +1964,7 @@ class ChessMvpApp:
             for card in cards:
                 self.render_repertoire_row(content, index, card)
                 index += 1
-        self.restore_repertoire_section(header, content, variation, len(cards), state_key)
+        self.restore_repertoire_section(header, content, label, state_key)
         return index
 
     def render_subvariation_section(
@@ -1306,17 +1982,18 @@ class ChessMvpApp:
         classification = self.classify_opening(cards[0])
         state_key = (
             cards[0]["repertoire_id"],
+            "White" if cards[0]["repertoire_color"] else "Black",
             classification["opening"],
             classification["variation"] or "Main line",
             subvariation,
         )
+        label = self.hierarchy_label(subvariation, cards)
         header.configure(
-            text=f"+  {subvariation} ({len(cards)})",
+            text=f"+  {label}",
             command=lambda: self.toggle_opening_section(
                 header,
                 content,
-                subvariation,
-                len(cards),
+                label,
                 state_key,
             ),
         )
@@ -1326,7 +2003,7 @@ class ChessMvpApp:
         for card in cards:
             self.render_repertoire_row(content, index, card)
             index += 1
-        self.restore_repertoire_section(header, content, subvariation, len(cards), state_key)
+        self.restore_repertoire_section(header, content, label, state_key)
         return index
 
     def toggle_opening_section(
@@ -1334,17 +2011,16 @@ class ChessMvpApp:
         header: ttk.Button,
         content: ttk.Frame,
         opening: str,
-        count: int,
         state_key: tuple[str, ...] | None = None,
     ) -> None:
         if content.winfo_manager():
             content.pack_forget()
-            header.configure(text=f"+  {opening} ({count})")
+            header.configure(text=f"+  {opening}")
             if state_key is not None:
                 self.repertoire_expanded_sections.discard(state_key)
         else:
             content.pack(fill="x")
-            header.configure(text=f"-  {opening} ({count})")
+            header.configure(text=f"-  {opening}")
             if state_key is not None:
                 self.repertoire_expanded_sections.add(state_key)
 
@@ -1353,12 +2029,11 @@ class ChessMvpApp:
         header: ttk.Button,
         content: ttk.Frame,
         label: str,
-        count: int,
         state_key: tuple[str, ...],
     ) -> None:
         if state_key in self.repertoire_expanded_sections:
             content.pack(fill="x")
-            header.configure(text=f"-  {label} ({count})")
+            header.configure(text=f"-  {label}")
 
     def render_repertoire_row(self, parent: ttk.Frame, index: int, card: dict[str, str]) -> None:
         row = ttk.Frame(parent, style="Panel.TFrame", padding=(0, 0, 0, 8))
@@ -1407,6 +2082,7 @@ class ChessMvpApp:
         )
         detail_text = "\n".join(
             [
+                f"ECO: {classification['eco'] or '(none identified)'}",
                 f"Opening: {classification['opening']}",
                 f"Variation: {classification['variation'] or '(none identified)'}",
                 f"Subvariation: {classification['subvariation'] or '(none identified)'}",
@@ -1476,6 +2152,7 @@ class ChessMvpApp:
         return root_fen, history
 
     def load_repertoire_card(self, card: dict, mode: str) -> None:
+        self.hide_quiz_title_card()
         self.capture_repertoire_scroll_position()
         try:
             root_fen, history = self.pgn_move_history(card["pgn"])
@@ -1605,6 +2282,8 @@ class ChessMvpApp:
         }
 
     def update_pgn(self) -> None:
+        if self.mode != "quiz":
+            self.show_live_opening_title_card()
         if self.mode in {"view", "edit"}:
             self.show_repertoire_line_mode()
             return

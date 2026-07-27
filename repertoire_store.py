@@ -21,7 +21,7 @@ QUIZ_MARK_RE = re.compile(r"(?:\s*\[%crm_quiz\s+1\]\s*)")
 class RepertoireInfo:
     path: Path
     name: str
-    color: bool
+    color: bool | None
 
     @property
     def id(self) -> str:
@@ -161,7 +161,13 @@ def _line_pgn(moves: list[chess.Move], root_board: chess.Board) -> str:
     return game.accept(exporter).strip()
 
 
-def _headers(name: str, color: bool) -> dict[str, str]:
+def _color_header(color: bool | None) -> str:
+    if color is None:
+        return "Both"
+    return "White" if color else "Black"
+
+
+def _headers(name: str, color: bool | None) -> dict[str, str]:
     return {
         "Event": name,
         "Site": "Chess Repertoire Memorizer",
@@ -170,12 +176,12 @@ def _headers(name: str, color: bool) -> dict[str, str]:
         "White": "?",
         "Black": "?",
         "Result": "*",
-        "RepertoireColor": "White" if color else "Black",
+        "RepertoireColor": _color_header(color),
         "CRMVersion": "1",
     }
 
 
-def _apply_headers(games: list[chess.pgn.Game], name: str, color: bool) -> None:
+def _apply_headers(games: list[chess.pgn.Game], name: str, color: bool | None) -> None:
     for game in games:
         preserved = dict(game.headers)
         game.headers.clear()
@@ -202,8 +208,8 @@ class RepertoireStore:
             games, errors = parse_pgn(path.read_text(encoding="utf-8"))
             if not games or errors:
                 continue
-            color_text = games[0].headers.get("RepertoireColor", "White").lower()
-            color = color_text != "black"
+            color_text = games[0].headers.get("RepertoireColor", "White").casefold()
+            color = None if color_text in {"both", "all"} else color_text != "black"
             name = games[0].headers.get("Event", path.stem.replace("-", " ").title())
             infos.append(RepertoireInfo(path, name, color))
         return infos
@@ -244,7 +250,7 @@ class RepertoireStore:
             if temp_path.exists():
                 temp_path.unlink()
 
-    def create(self, name: str, color: bool) -> RepertoireInfo:
+    def create(self, name: str, color: bool | None = None) -> RepertoireInfo:
         path = self._available_path(name)
         game = chess.pgn.Game()
         game.headers.clear()
@@ -261,6 +267,25 @@ class RepertoireStore:
             info.path.unlink()
         return RepertoireInfo(new_path, name, info.color)
 
+    def combine(self, name: str, repertoires: list[RepertoireInfo]) -> RepertoireInfo:
+        """Merge repertoire trees into one file that accepts moves for both sides."""
+        if not repertoires:
+            raise ValueError("Choose at least one repertoire to combine")
+
+        games: list[chess.pgn.Game] = []
+        preferred: dict[str, str] = {}
+        for info in repertoires:
+            incoming = self.read_games(info)
+            preferred.update(trained_answer_choices(incoming))
+            for game in incoming:
+                merge_game_into(games, game)
+
+        enforce_single_answers(games, preferred)
+        _apply_headers(games, name, None)
+        path = self._available_path(name)
+        self._atomic_write(path, games)
+        return RepertoireInfo(path, name, None)
+
     def add_line(self, info: RepertoireInfo, moves: list[chess.Move]) -> str:
         if not moves:
             raise ValueError("Play a move first")
@@ -270,7 +295,7 @@ class RepertoireStore:
                 raise ValueError(f"Illegal move in played line: {move.uci()}")
             board.push(move)
         final_color = not board.turn
-        if final_color != info.color:
+        if info.color is not None and final_color != info.color:
             raise ValueError(f"The final move is not a {'White' if info.color else 'Black'} repertoire move")
 
         games = self.read_games(info)
@@ -322,7 +347,10 @@ class RepertoireStore:
                             "prompt_id": f"{info.id}:{key}",
                             "repertoire_id": info.id,
                             "repertoire_name": info.name,
-                            "repertoire_color": info.color,
+                            # A combined repertoire may train either side. The
+                            # position itself always tells us whose move is being
+                            # trained, which is also the correct board orientation.
+                            "repertoire_color": board.turn,
                             "file": info.path.name,
                             "path": str(info.path),
                             "position_key": key,
@@ -412,7 +440,7 @@ class RepertoireStore:
                 raise ValueError(f"Illegal move in edited line: {move.uci()}")
             board.push(move)
         final_color = not board.turn
-        if final_color != info.color:
+        if info.color is not None and final_color != info.color:
             raise ValueError(
                 f"The edited line must end with a {'White' if info.color else 'Black'} repertoire move"
             )
@@ -458,7 +486,7 @@ class RepertoireStore:
         self._atomic_write(info.path, games)
         return removed
 
-    def preview_import(self, text: str, color: bool) -> dict:
+    def preview_import(self, text: str, color: bool | None) -> dict:
         games, errors = parse_pgn(text)
         has_marks = any(
             is_quiz_node(child)
@@ -470,7 +498,7 @@ class RepertoireStore:
             for game in games:
                 for node in _walk_nodes(game):
                     for child in node.variations:
-                        if child.parent.board().turn == color:
+                        if color is None or child.parent.board().turn == color:
                             mark_quiz_node(child)
         merged: list[chess.pgn.Game] = []
         for game in games:
@@ -482,7 +510,7 @@ class RepertoireStore:
         else:
             prompts = []
         if games and not prompts and not errors:
-            errors.append("The PGN contains no trainable moves for the selected color")
+            errors.append("The PGN contains no trainable moves for the selected side")
         return {
             "games": merged,
             "errors": errors,
@@ -493,7 +521,7 @@ class RepertoireStore:
             "used_existing_marks": has_marks,
         }
 
-    def import_preview(self, preview: dict, name: str, color: bool, mode: str) -> RepertoireInfo:
+    def import_preview(self, preview: dict, name: str, color: bool | None, mode: str) -> RepertoireInfo:
         if preview["errors"] or not preview["games"]:
             raise ValueError("Cannot import invalid PGN")
         existing = next((info for info in self.list_repertoires() if info.name.casefold() == name.casefold()), None)
@@ -513,9 +541,11 @@ class RepertoireStore:
             games = incoming
             path = self._available_path(name)
         enforce_single_answers(games, incoming_choices)
-        _apply_headers(games, name, color)
+        # The color argument controls which unmarked moves were selected during
+        # preview. Imported repertoire files themselves accept both sides.
+        _apply_headers(games, name, None)
         self._atomic_write(path, games)
-        return RepertoireInfo(path, name, color)
+        return RepertoireInfo(path, name, None)
 
 def _walk_nodes(root: chess.pgn.GameNode):
     yield root
