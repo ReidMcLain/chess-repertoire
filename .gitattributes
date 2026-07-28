@@ -1,0 +1,6 @@
+# The opening catalog checksum covers the generator's exact LF-terminated bytes.
+# Keep bundled opening resources deterministic on every checkout platform.
+data/openings/*.tsv text eol=lf
+data/openings/*.json text eol=lf
+data/openings/*.md text eol=lf
+data/openings/*.txt text eol=lf
