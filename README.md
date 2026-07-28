@@ -2,6 +2,25 @@
 
 This first MVP is a local Python desktop app, not a browser app.
 
+## Download for Windows
+
+1. Open the [GitHub Releases page](https://github.com/ReidMcLain/chess-repertoire/releases).
+2. Expand **Assets** for the latest release.
+3. Download `Chess-Repertoire-Memorizer-vX.Y-Windows.zip` and extract it.
+4. Run `Chess Repertoire Memorizer.exe` from the extracted folder. Keep the
+   accompanying `_internal` folder beside the executable. Python and pip are
+   not required.
+
+Windows SmartScreen may warn that the application is from an unknown publisher.
+The executable is not currently code-signed, so confirm that you downloaded it
+from this repository's Releases page before choosing **Run anyway**.
+
+User-created repertoires are stored in:
+
+```text
+%LOCALAPPDATA%\ChessRepertoireMemorizer\repertoire\
+```
+
 It shows:
 
 - A playable chess board
@@ -71,3 +90,30 @@ python app.py
 ```
 
 Click a piece, then click a target square to make a legal move. Pawn promotions auto-promote to queen for this MVP.
+
+## Build the Windows application
+
+On Windows, one PowerShell command creates an isolated build environment,
+installs the dependencies, runs the tests, builds the application, checks its
+bundled resources, and performs a packaged-app smoke test:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_windows.ps1 -Version v1.0
+```
+
+The finished release assets are written to:
+
+```text
+release\Chess-Repertoire-Memorizer-v1.0-Windows.zip
+```
+
+The ZIP contains a PyInstaller one-folder distribution. This is more reliable
+on Windows than a self-extracting one-file build because it does not unpack
+runtime DLLs into a temporary directory every time the app starts.
+
+The build intentionally includes only the application code, `assets/`, the
+bundled opening catalog in `data/openings/`, the build version, required
+runtime libraries, and third-party license metadata. It excludes the
+repository's `repertoire/` directory, archived/personal PGNs, the
+Chess.com-generated report, tests, caches, virtual environments, and other
+development/build output.

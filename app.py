@@ -1,11 +1,13 @@
 ﻿import tkinter as tk
 import io
+import sys
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import chess
 import chess.pgn
 
+from app_paths import repertoire_directory, resource_directory, resource_path
 from opening_classifier import OPENING_CLASSIFIER
 from repertoire_store import RepertoireInfo, RepertoireStore
 
@@ -21,9 +23,9 @@ PANEL = "#ffffff"
 TEXT = "#1f2937"
 MUTED = "#6b7280"
 SUCCESS = "#15803d"
-ASSET_DIR = Path(__file__).with_name("assets") / "pieces"
-CHECK_SUCCESS_LOTTIE = Path(__file__).with_name("assets") / "check_success.json"
-REPERTOIRE_DIR = Path(__file__).with_name("repertoire")
+ASSET_DIR = resource_path("assets", "pieces")
+CHECK_SUCCESS_LOTTIE = resource_path("assets", "check_success.json")
+REPERTOIRE_DIR = repertoire_directory()
 
 PIECES = {
     chess.PAWN: ("P", "p"),
@@ -2425,6 +2427,34 @@ def run_desktop_mvp() -> None:
     root.mainloop()
 
 
+def validate_runtime_resources() -> list[str]:
+    """Return packaging/runtime validation errors without starting the GUI."""
+    required = [
+        CHECK_SUCCESS_LOTTIE,
+        resource_path("data", "openings", "metadata.json"),
+        resource_path("data", "openings", "openings.tsv"),
+        resource_path("VERSION"),
+    ]
+    required.extend(
+        ASSET_DIR / f"{color}{piece}.png"
+        for color in ("w", "b")
+        for piece in ("K", "Q", "R", "B", "N", "P")
+    )
+    errors = [f"Missing bundled resource: {path}" for path in required if not path.is_file()]
+    if not REPERTOIRE_DIR.is_dir():
+        errors.append(f"Writable repertoire directory was not created: {REPERTOIRE_DIR}")
+    if getattr(sys, "frozen", False):
+        try:
+            REPERTOIRE_DIR.resolve().relative_to(resource_directory().resolve())
+        except ValueError:
+            pass
+        else:
+            errors.append("Writable repertoire directory is inside the bundled resource directory")
+    return errors
+
+
 if __name__ == "__main__":
+    if "--packaging-self-test" in sys.argv:
+        raise SystemExit(1 if validate_runtime_resources() else 0)
     run_desktop_mvp()
 

@@ -12,8 +12,10 @@ from typing import Iterable, Mapping
 import chess
 import chess.pgn
 
+from app_paths import resource_path
 
-OPENING_DATA_DIRECTORY = Path(__file__).with_name("data") / "openings"
+
+OPENING_DATA_DIRECTORY = resource_path("data", "openings")
 
 
 def position_key(board: chess.Board) -> str:
