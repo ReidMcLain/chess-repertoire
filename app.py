@@ -23,6 +23,7 @@ PANEL = "#ffffff"
 TEXT = "#1f2937"
 MUTED = "#6b7280"
 SUCCESS = "#15803d"
+DESTRUCTIVE = "#b91c1c"
 ASSET_DIR = resource_path("assets", "pieces")
 CHECK_SUCCESS_LOTTIE = resource_path("assets", "check_success.json")
 REPERTOIRE_DIR = repertoire_directory()
@@ -77,6 +78,8 @@ class ChessMvpApp:
         self.store = RepertoireStore(REPERTOIRE_DIR)
         self.repertoire_by_label: dict[str, RepertoireInfo] = {}
         self.active_repertoire = tk.StringVar(value="")
+        self.toast_frame: tk.Frame | None = None
+        self.toast_after_id: str | None = None
 
         left_panel = ttk.Frame(root, padding=16, style="Panel.TFrame")
         left_panel.grid(row=0, column=0, sticky="ns", padx=(12, 6), pady=12)
@@ -237,6 +240,77 @@ class ChessMvpApp:
         style.configure("Accordion.TButton", font=("Segoe UI", 11, "bold"), padding=(10, 9), anchor="w")
         style.configure("TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 10))
         style.configure("Title.TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 15, "bold"))
+
+    def show_toast(self, title: str, message: str, color: str, duration_ms: int = 4000) -> None:
+        """Show a temporary notification over the top-right corner of the app."""
+        self.dismiss_toast()
+
+        toast = tk.Frame(
+            self.root,
+            bg=PANEL,
+            highlightbackground=color,
+            highlightthickness=1,
+            bd=0,
+        )
+        tk.Frame(toast, width=6, bg=color).pack(side="left", fill="y")
+
+        body = tk.Frame(toast, bg=PANEL, padx=12, pady=10)
+        body.pack(side="left", fill="both", expand=True)
+        tk.Label(
+            body,
+            text=title,
+            bg=PANEL,
+            fg=color,
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+        ).pack(fill="x")
+        tk.Label(
+            body,
+            text=message,
+            bg=PANEL,
+            fg=TEXT,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=280,
+        ).pack(fill="x", pady=(3, 0))
+        tk.Button(
+            toast,
+            text="×",
+            command=self.dismiss_toast,
+            bg=PANEL,
+            fg=MUTED,
+            activebackground=PANEL,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=7,
+            font=("Segoe UI", 11),
+            cursor="hand2",
+        ).pack(side="right", anchor="n")
+
+        toast.place(relx=1.0, x=-22, y=22, anchor="ne", width=350)
+        toast.lift()
+        self.toast_frame = toast
+        self.toast_after_id = self.root.after(duration_ms, self.dismiss_toast)
+
+    def dismiss_toast(self) -> None:
+        after_id = self.toast_after_id
+        self.toast_after_id = None
+        if after_id is not None:
+            try:
+                self.root.after_cancel(after_id)
+            except tk.TclError:
+                pass
+
+        toast = self.toast_frame
+        self.toast_frame = None
+        if toast is not None:
+            try:
+                toast.destroy()
+            except tk.TclError:
+                pass
 
     def event_to_square(self, event: tk.Event) -> chess.Square | None:
         display_file = event.x // SQUARE_SIZE
@@ -461,7 +535,7 @@ class ChessMvpApp:
                 y1 = display_rank * SQUARE_SIZE
                 x2 = x1 + SQUARE_SIZE
                 y2 = y1 + SQUARE_SIZE
-                color = LIGHT if (chess.square_rank(square) + chess.square_file(square)) % 2 == 0 else DARK
+                color = DARK if (chess.square_rank(square) + chess.square_file(square)) % 2 == 0 else LIGHT
                 if square == self.selected_square:
                     color = SELECTED
                 self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline=color)
@@ -500,6 +574,28 @@ class ChessMvpApp:
                             font=("Segoe UI", 36, "bold"),
                             tags=("piece", f"piece-{square}"),
                         )
+
+                coordinate_color = DARK if color == LIGHT else LIGHT
+                if display_file == 0:
+                    self.canvas.create_text(
+                        x1 + 4,
+                        y1 + 3,
+                        text=chess.RANK_NAMES[chess.square_rank(square)],
+                        anchor="nw",
+                        fill=coordinate_color,
+                        font=("Segoe UI", 8, "bold"),
+                        tags=("board-coordinate",),
+                    )
+                if display_rank == 7:
+                    self.canvas.create_text(
+                        x2 - 4,
+                        y2 - 3,
+                        text=chess.FILE_NAMES[chess.square_file(square)],
+                        anchor="se",
+                        fill=coordinate_color,
+                        font=("Segoe UI", 8, "bold"),
+                        tags=("board-coordinate",),
+                    )
 
     def update_navigation_buttons(self) -> None:
         if self.mode in {"play", "view", "edit"}:
@@ -735,6 +831,14 @@ class ChessMvpApp:
             self.status.set(f"Saved {card['move_san']} in {info.name}")
         else:
             self.status.set(f"Duplicate ignored: {card['move_san']} is already trainable in {info.name}")
+            return
+
+        repertoire_side = "White" if chess.Board(card["before_fen"]).turn == chess.WHITE else "Black"
+        self.show_toast(
+            f"Added to {repertoire_side} repertoire",
+            f"{card['move_san']} · {info.name}",
+            SUCCESS,
+        )
 
     def reset_board(self) -> None:
         self.board.reset()
@@ -761,6 +865,7 @@ class ChessMvpApp:
         self.clear_quiz_actions()
         self.hide_quiz_title_card()
         self.orientation_turn = None
+        self.manual_orientation = chess.WHITE
         self.selected_square = None
         self.dragging_square = None
         if self.drag_item is not None:
@@ -1428,6 +1533,7 @@ class ChessMvpApp:
             self.last_missed_cards = [result["card"] for result in missed_results]
             self.quiz_round_summaries.append((self.quiz_score, total))
             self.mode = "play"
+            self.manual_orientation = chess.WHITE
             self.show_feedback("✓", f"Quiz complete: {self.quiz_score}/{total}", SUCCESS)
             self.status.set(f"Quiz complete: {self.quiz_score}/{total}")
             self.update_quiz_counter()
@@ -1832,6 +1938,7 @@ class ChessMvpApp:
         self.hide_quiz_title_card()
         if self.mode in {"view", "edit"}:
             self.mode = "play"
+            self.manual_orientation = chess.WHITE
             self.active_line_card = None
             self.editing_card = None
             self.edit_dirty = False
@@ -2186,6 +2293,7 @@ class ChessMvpApp:
 
     def return_to_repertoire(self) -> None:
         self.mode = "play"
+        self.manual_orientation = chess.WHITE
         self.active_line_card = None
         self.editing_card = None
         self.edit_dirty = False
@@ -2249,10 +2357,16 @@ class ChessMvpApp:
             ):
                 return
             removed = self.store.remove_answer(info, card["position_key"], answer["move_uci"])
-            self.status.set(f"Removed {answer['move_san']} from {removed} PGN path(s)")
             if isinstance(parent, tk.Toplevel):
                 parent.destroy()
             self.view_repertoire()
+            self.status.set(f"Removed {answer['move_san']} from {removed} PGN path(s)")
+            repertoire_side = "White" if card["repertoire_color"] == chess.WHITE else "Black"
+            self.show_toast(
+                f"Deleted from {repertoire_side} repertoire",
+                f"{answer['move_san']} · {info.name}",
+                DESTRUCTIVE,
+            )
 
         answers = card["accepted_moves"]
         if len(answers) == 1:
