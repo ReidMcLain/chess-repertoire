@@ -199,6 +199,64 @@ class OpeningClassificationTests(unittest.TestCase):
 
         self.assertEqual(["Main line", "Maroczy Bind"], list(groups))
 
+    def test_child_groups_use_each_cards_most_specific_named_class(self) -> None:
+        cards = [
+            {
+                "opening": "Sicilian Defense",
+                "variation": "Accelerated Dragon",
+                "subvariation": "",
+            },
+            {
+                "opening": "Sicilian Defense",
+                "variation": "Accelerated Dragon",
+                "subvariation": "Maroczy Bind",
+            },
+            {
+                "opening": "Nimzo-Indian Defense",
+                "variation": "",
+                "subvariation": "",
+            },
+        ]
+
+        groups = self.app.child_classification_groups(cards)
+
+        self.assertEqual(
+            [
+                ("Sicilian Defense", "Accelerated Dragon"),
+                ("Sicilian Defense", "Accelerated Dragon", "Maroczy Bind"),
+                ("Nimzo-Indian Defense",),
+            ],
+            list(groups),
+        )
+        self.assertEqual([cards[1]], groups[("Sicilian Defense", "Accelerated Dragon", "Maroczy Bind")])
+
+    def test_child_groups_keep_same_named_leaf_under_different_parents_separate(self) -> None:
+        cards = [
+            {"opening": "Opening A", "variation": "Classical", "subvariation": ""},
+            {"opening": "Opening B", "variation": "Classical", "subvariation": ""},
+        ]
+
+        groups = self.app.child_classification_groups(cards)
+
+        self.assertEqual(
+            [("Opening A", "Classical"), ("Opening B", "Classical")],
+            list(groups),
+        )
+
+    def test_repertoire_grouping_toggle_switches_between_parent_and_child_views(self) -> None:
+        render_calls = []
+        self.app.repertoire_grouping = "parents"
+        self.app.repertoire_scroll_fraction = 0.75
+        self.app.render_repertoire_explorer = lambda: render_calls.append(True)
+
+        self.app.toggle_repertoire_grouping()
+
+        self.assertEqual("children", self.app.repertoire_grouping)
+        self.assertEqual(0.0, self.app.repertoire_scroll_fraction)
+        self.app.toggle_repertoire_grouping()
+        self.assertEqual("parents", self.app.repertoire_grouping)
+        self.assertEqual(2, len(render_calls))
+
     def test_variation_study_includes_sequential_lead_in_quiz_moves(self) -> None:
         cards = [
             {
@@ -245,6 +303,53 @@ class OpeningClassificationTests(unittest.TestCase):
         )
 
         self.assertEqual(cards[1:4], selected)
+
+    def test_selected_study_trees_deduplicate_shared_transposition_prompts(self) -> None:
+        english = ("black", chess.BLACK, ("English Opening",))
+        indian = ("black", chess.BLACK, ("Indian Defense",))
+        shared = {
+            "prompt_id": "black:shared-position",
+            "repertoire_id": "black",
+            "repertoire_color": chess.BLACK,
+            "before_fen": chess.Board().fen(),
+            "pgn": "1. c4 Nf6 *",
+        }
+        indian_only = {
+            "prompt_id": "black:indian-position",
+            "repertoire_id": "black",
+            "repertoire_color": chess.BLACK,
+            "before_fen": chess.Board().fen(),
+            "pgn": "1. d4 Nf6 2. c4 e6 *",
+        }
+        node_cards = {
+            english: [shared],
+            indian: [shared, indian_only],
+        }
+        family_paths = {
+            id(shared): ("English Opening", "Indian Defense"),
+            id(indian_only): ("Indian Defense",),
+        }
+
+        selected = self.app.study_cards_for_nodes(
+            [english, indian],
+            node_cards,
+            family_paths,
+        )
+
+        self.assertEqual(
+            ["black:shared-position", "black:indian-position"],
+            [card["prompt_id"] for card in selected],
+        )
+        self.assertEqual(("English Opening",), selected[0]["_study_path"])
+        self.assertEqual(("English Opening", "Indian Defense"), selected[0]["_family_path"])
+
+        limited = self.app.study_cards_for_nodes(
+            [english, indian],
+            node_cards,
+            family_paths,
+            max_ply=2,
+        )
+        self.assertEqual(["black:shared-position"], [card["prompt_id"] for card in limited])
 
     def test_combined_repertoire_keeps_white_and_black_study_trees_separate(self) -> None:
         cards = [
