@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TheoryVault · Style directions</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #eeeff2; color: #172235; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1280px; margin: auto; padding: 28px; }
+h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -.8px; }
+.intro { margin: 0 0 20px; color: #566174; }
+.choices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.choice { padding: 14px 16px; border: 1px solid #cbd0da; border-radius: 12px; background: #fff; color: #172235; text-align: left; font: inherit; cursor: pointer; }
+.choice[aria-pressed="true"] { border-color: #142d50; box-shadow: 0 0 0 2px #142d50; }
+.choice strong { display: block; font-size: 15px; margin-bottom: 3px; }
+.choice small { color: #566174; }
+.swatches { display: flex; gap: 5px; margin-top: 10px; }
+.swatches i { width: 22px; height: 8px; border-radius: 4px; background: var(--swatch); border: 1px solid #00000012; }
+button:focus-visible { outline: 3px solid #3e83e7; outline-offset: 4px; }
+.app {
+  --bg: #eef1f5; --surface: #fff; --text: #13243c; --muted: #657286;
+  --line: #dce2e9; --soft: #f5f7fa; --accent: #173558; --on-accent: #fff;
+  --selected: #e7edf5; --gold: #a57913; --radius: 12px;
+  --board-light: #eeeed2; --board-dark: #769656;
+  padding: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 16px; box-shadow: 0 12px 32px #1722350c;
+}
+.app[data-theme="midnight"] {
+  --bg: #111720; --surface: #1a2330; --text: #ebeff5; --muted: #a3b0c0;
+  --line: #303d4e; --soft: #222e3d; --accent: #dbb64e; --on-accent: #152031;
+  --selected: #35402e; --gold: #e1bd5e; --radius: 10px;
+}
+.app[data-theme="study"] {
+  --bg: #eae7e0; --surface: #faf8f2; --text: #243a32; --muted: #686f64;
+  --line: #dcded2; --soft: #efeee5; --accent: #365d4a; --on-accent: #fff;
+  --selected: #e2eadf; --gold: #846323; --radius: 8px;
+}
+.app[data-theme="slate"] {
+  --bg: #f6f8fc; --surface: #fff; --text: #192331; --muted: #626e80;
+  --line: #e0e6f0; --soft: #f0f4fb; --accent: #315ed2; --on-accent: #fff;
+  --selected: #e9effd; --gold: #5a6c93; --radius: 5px;
+}
+.workspace { display: grid; grid-template-columns: 208px minmax(330px, 1fr) minmax(230px, .7fr); gap: 14px; align-items: stretch; }
+.panel { padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.logo { position: relative; width: 176px; height: 33px; overflow: hidden; margin: 0 0 20px; }
+.logo img { position: absolute; width: 192px; max-width: none; left: -8px; top: -16px; }
+[data-theme="midnight"] .logo { background: #f5f6f8; border-radius: 4px; }
+.field-label { display: block; color: var(--muted); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.select { display: flex; justify-content: space-between; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--soft); font-size: 13px; }
+.row { display: flex; gap: 8px; }
+.sidebar .row { margin: 8px 0 16px; }
+.control { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); text-align: center; font-size: 13px; font-weight: 600; }
+.row .control { flex: 1; }
+.sidebar > .control { margin-bottom: 8px; }
+.control.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.control.subtle { background: var(--soft); border-color: transparent; }
+.control.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+.board-panel { padding: 10px; }
+.opening { padding: 2px 4px 12px; }
+.kicker { color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
+.opening h2 { margin: 3px 0 0; font-size: 19px; font-weight: 650; letter-spacing: -.4px; }
+.opening p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+[data-theme="study"] .opening h2 { font-family: Georgia, serif; font-weight: 500; }
+.board { display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1; overflow: hidden; border-radius: 3px; }
+.square { position: relative; aspect-ratio: 1; background: var(--board-light); }
+.square.dark { background: var(--board-dark); }
+.square img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.square span { position: absolute; bottom: 0; right: 3px; font-size: 9px; font-weight: 700; color: #3e542b; }
+.square.dark span { color: #fafbe9; }
+.board-controls { justify-content: center; margin-top: 10px; }
+.board-controls .control { flex: 0 0 38px; padding: 4px 9px; font-size: 17px; }
+.pgn h2 { font-size: 16px; margin: 0; letter-spacing: -.3px; }
+.pgn .subtitle { color: var(--muted); margin: 2px 0 16px; font-size: 12px; }
+.pgn-text { margin: 0; padding: 12px; border-radius: 6px; background: var(--soft); font: 13px/1.9 "Segoe UI", sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pgn-text mark { background: var(--selected); color: var(--text); border-radius: 3px; padding: 2px 3px; }
+.status { color: var(--muted); font-size: 12px; padding: 10px 3px 0; }
+.notes { margin-top: 16px; padding: 16px 20px; background: #fff; border: 1px solid #dce2e9; border-radius: 12px; }
+.notes strong { font-size: 15px; }
+.notes p { margin: 4px 0 0; color: #566174; }
+.scope { font-size: 12px; color: #566174; margin: 12px 0 0; }
+@media (max-width: 980px) {
+  main { padding: 20px; }
+  .choices { grid-template-columns: repeat(2, 1fr); }
+  .workspace { grid-template-columns: 208px minmax(300px, 1fr); }
+  .pgn { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  main { padding: 12px; }
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .choices { gap: 8px; }
+  .choice { padding: 10px; }
+  .sidebar { display: none; }
+  .app { padding: 8px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>A fresh look for TheoryVault</h1>
+  <p class="intro">Choose a direction to preview. Same compact workspace, same controls, four different visual treatments.</p>
+  <nav class="choices" aria-label="Visual style">
+    <button class="choice" data-theme="vault" aria-pressed="true"><strong>01 · Vault</strong><small>Navy, white, restrained gold</small><span class="swatches"><i style="--swatch:#173558"></i><i style="--swatch:#fff"></i><i style="--swatch:#d5ac39"></i></span></button>
+    <button class="choice" data-theme="midnight" aria-pressed="false"><strong>02 · Midnight</strong><small>Dark surfaces, warm accents</small><span class="swatches"><i style="--swatch:#111720"></i><i style="--swatch:#303d4e"></i><i style="--swatch:#dbb64e"></i></span></button>
+    <button class="choice" data-theme="study" aria-pressed="false"><strong>03 · Study</strong><small>Warm ivory, forest green</small><span class="swatches"><i style="--swatch:#faf8f2"></i><i style="--swatch:#365d4a"></i><i style="--swatch:#b2b99c"></i></span></button>
+    <button class="choice" data-theme="slate" aria-pressed="false"><strong>04 · Slate</strong><small>Crisp white, blue, straight edges</small><span class="swatches"><i style="--swatch:#fff"></i><i style="--swatch:#315ed2"></i><i style="--swatch:#e0e6f0"></i></span></button>
+  </nav>
+  <section class="app" data-theme="vault" aria-label="TheoryVault appearance preview">
+    <div class="workspace">
+      <aside class="panel sidebar">
+        <div class="logo"><img src="../assets/theoryvault-logo.png" alt="TheoryVault"></div>
+        <span class="field-label">Active repertoire</span>
+        <div class="select">My openings <span aria-hidden="true">⌄</span></div>
+        <div class="row"><div class="control">New</div><div class="control">Rename</div></div>
+        <div class="control primary">Add move</div>
+        <div class="control">Import PGN</div>
+        <div class="control subtle">Quiz</div>
+        <div class="control">View repertoire</div>
+        <div class="control quiet">Reset board</div>
+      </aside>
+      <section class="panel board-panel" aria-label="Chess board">
+        <div class="opening"><div class="kicker">LIVE OPENING · ECO C00</div><h2>French Defense</h2><p>Normal Variation</p></div>
+        <div class="board" role="img" aria-label="Chess position after 1. e4 e6 2. d4 d5"></div>
+        <div class="row board-controls" aria-label="Board navigation appearance"><div class="control">←</div><div class="control">⇄</div><div class="control">→</div></div>
+      </section>
+      <section class="panel pgn"><h2>Live PGN</h2><p class="subtitle">Current line</p><pre class="pgn-text">[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "*"]
+
+1. e4 e6 2. d4 <mark>d5</mark> *</pre></section>
+    </div>
+    <div class="status">White to move</div>
+  </section>
+  <section class="notes" aria-live="polite"><strong id="note-title">Vault · My first choice for your app</strong><p id="note-copy">Uses the navy and gold already in your logo. White panels, subtle borders, and a clear primary action make the workspace feel more polished without adding clutter.</p></section>
+  <p class="scope">Appearance study only. The controls inside the app preview are illustrative. Board colors and pieces stay consistent across the four directions; no application code or behavior has been changed.</p>
+</main>
+<script>
+const board = document.querySelector('.board');
+const ranks = ['rnbqkbnr', 'ppp..ppp', '....p...', '...p....', '...PP...', '........', 'PPP..PPP', 'RNBQKBNR'];
+ranks.forEach((rank, row) => [...rank].forEach((piece, col) => {
+  const square = document.createElement('div');
+  square.className = 'square' + ((row + col) % 2 ? ' dark' : '');
+  if (piece !== '.') {
+    const img = document.createElement('img');
+    img.src = '../assets/pieces/' + (piece === piece.toUpperCase() ? 'w' : 'b') + piece.toUpperCase() + '.png';
+    img.alt = '';
+    square.append(img);
+  }
+  if (row === 7) {
+    const label = document.createElement('span');
+    label.textContent = 'abcdefgh'[col];
+    square.append(label);
+  }
+  board.append(square);
+}));
+const notes = {
+  vault: ['Vault · My first choice for your app', 'Uses the navy and gold already in your logo. White panels, subtle borders, and a clear primary action make the workspace feel more polished without adding clutter.'],
+  midnight: ['Midnight · A focused dark workspace', 'Deep navy panels with an amber primary action and softer secondary controls. The original logo sits on a small light backing so its navy lettering remains readable. The chessboard stays familiar.'],
+  study: ['Study · A quieter, warmer direction', 'Ivory surfaces, forest green actions, and a serif opening title give this version the feeling of a chess study desk. The controls stay compact, with warmth coming from color and typography.'],
+  slate: ['Slate · A crisp desktop utility', 'Mostly white surfaces, small corner radii, and a blue accent. Thin borders and consistent button spacing give this direction a precise, modern feel with less visual decoration.']
+};
+document.querySelectorAll('.choice').forEach(button => button.addEventListener('click', () => {
+  const theme = button.dataset.theme;
+  document.querySelector('.app').dataset.theme = theme;
+  document.querySelectorAll('.choice').forEach(choice => choice.setAttribute('aria-pressed', String(choice === button)));
+  document.getElementById('note-title').textContent = notes[theme][0];
+  document.getElementById('note-copy').textContent = notes[theme][1];
+}));
+</script>
+</body>
+</html>

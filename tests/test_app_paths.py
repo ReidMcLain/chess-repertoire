@@ -1,9 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app_paths import (
     APPLICATION_DATA_DIRECTORY_NAME,
+    LEGACY_APPLICATION_DATA_DIRECTORY_NAME,
     repertoire_directory,
     resource_path,
     user_data_directory,
@@ -11,6 +13,41 @@ from app_paths import (
 
 
 class ApplicationPathTests(unittest.TestCase):
+    def test_legacy_data_is_copied_once_without_overwriting_vault_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            legacy = base / LEGACY_APPLICATION_DATA_DIRECTORY_NAME / "repertoire"
+            legacy.mkdir(parents=True)
+            old_pgn = legacy / "my-lines.pgn"
+            old_pgn.write_text('1. e4 {[%crm_quiz 1]} *', encoding="utf-8")
+            environment = {"LOCALAPPDATA": str(base)}
+
+            vault = repertoire_directory(frozen=True, environment=environment)
+
+            self.assertEqual(base / "TheoryVault" / "repertoire", vault)
+            self.assertEqual(old_pgn.read_bytes(), (vault / old_pgn.name).read_bytes())
+            (vault / old_pgn.name).write_text("updated", encoding="utf-8")
+            repertoire_directory(frozen=True, environment=environment)
+            self.assertEqual("updated", (vault / old_pgn.name).read_text(encoding="utf-8"))
+            self.assertIn("crm_quiz", old_pgn.read_text(encoding="utf-8"))
+            (vault / old_pgn.name).unlink()
+            repertoire_directory(frozen=True, environment=environment)
+            self.assertFalse((vault / old_pgn.name).exists())
+
+    def test_failed_legacy_copy_leaves_no_partial_vault_and_can_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            legacy = base / LEGACY_APPLICATION_DATA_DIRECTORY_NAME
+            legacy.mkdir()
+            (legacy / "saved.txt").write_text("saved", encoding="utf-8")
+            environment = {"LOCALAPPDATA": str(base)}
+            with patch("app_paths.shutil.copytree", side_effect=OSError("copy interrupted")):
+                with self.assertRaises(OSError):
+                    user_data_directory(frozen=True, environment=environment)
+            self.assertFalse((base / "TheoryVault").exists())
+            vault = user_data_directory(frozen=True, environment=environment)
+            self.assertEqual("saved", (vault / "saved.txt").read_text(encoding="utf-8"))
+
     def test_source_resources_resolve_from_source_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)

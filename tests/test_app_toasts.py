@@ -4,12 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import chess
 
-from app import ChessMvpApp, DESTRUCTIVE, SUCCESS
+from app import TheoryVaultApp, DESTRUCTIVE, SUCCESS
 
 
 class AppToastTests(unittest.TestCase):
-    def make_save_app(self, outcome: str, before_fen: str) -> ChessMvpApp:
-        app = ChessMvpApp.__new__(ChessMvpApp)
+    def make_save_app(self, outcome: str, before_fen: str) -> TheoryVaultApp:
+        app = TheoryVaultApp.__new__(TheoryVaultApp)
         app.mode = "play"
         app.move_cursor = 1
         app.move_history = [
@@ -59,7 +59,7 @@ class AppToastTests(unittest.TestCase):
 
     @patch("app.messagebox.askyesno", return_value=True)
     def test_removed_move_toast_is_red_and_names_the_move(self, _askyesno: MagicMock) -> None:
-        app = ChessMvpApp.__new__(ChessMvpApp)
+        app = TheoryVaultApp.__new__(TheoryVaultApp)
         info = SimpleNamespace(name="French Defense")
         app.root = object()
         app.store = MagicMock()

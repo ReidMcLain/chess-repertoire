@@ -1,13 +1,13 @@
-# Chess Repertoire MVP
+# TheoryVault
 
-This first MVP is a local Python desktop app, not a browser app.
+TheoryVault is a local Python desktop app for building and memorizing your chess repertoire.
 
 ## Download for Windows
 
 1. Open the [GitHub Releases page](https://github.com/ReidMcLain/chess-repertoire/releases).
 2. Expand **Assets** for the latest release.
-3. Download `Chess-Repertoire-Memorizer-vX.Y-Windows.zip` and extract it.
-4. Run `Chess Repertoire Memorizer.exe` from the extracted folder. Keep the
+3. Download `TheoryVault-vX.Y-Windows.zip` and extract it.
+4. Run `TheoryVault.exe` from the extracted folder. Keep the
    accompanying `_internal` folder beside the executable. Python and pip are
    not required.
 
@@ -18,11 +18,17 @@ from this repository's Releases page before choosing **Run anyway**.
 User-created repertoires are stored in:
 
 ```text
-%LOCALAPPDATA%\ChessRepertoireMemorizer\repertoire\
+%LOCALAPPDATA%\TheoryVault\repertoire\
 ```
+
+On the first packaged launch, TheoryVault copies data from the previous
+`%LOCALAPPDATA%\ChessRepertoireMemorizer\` folder if no TheoryVault data folder
+exists yet. The original files remain intact. Existing TheoryVault data is never
+overwritten. Source runs continue to use the project's `repertoire/` folder.
 
 It shows:
 
+- A compact TheoryVault logo at the top of the left panel, bundled in `assets/theoryvault-logo.png`
 - A playable chess board
 - PNG chess piece assets in `assets/pieces`
 - A live PGN panel on the right
@@ -46,6 +52,8 @@ Quiz order follows the saved PGN tree. Before each prompt, the opponent's preced
 
 The hierarchical quiz selector discovers families dynamically and separates the White and Black trees inside each repertoire. It starts with a compact, collapsed list of parent families; expand one to follow its opening-name transitions, variations, and exact continuations. A parent selection includes its descendant lines and each continuation includes its trained ancestors in move order. During the drill, a chess title card above the board shows the exact family/context, ECO, tree number, and local move progress. `Restart Quiz` repeats the same selected trees.
 
+New quizzes put weaker selected opening families first, using the average of each unique position's hidden `(correct + 1) / (attempts + 2)` score. Unattempted positions contribute `0.5`, and tied families retain their existing order. Connected branches and move order within each family stay intact; all selected moves remain in the quiz, with shared positions still asked once. Each graded answer, including missed-move replays, updates local history for future quizzes. Restarting repeats the current sequence. History is saved in `quiz-history.sqlite3` in the user-data root (the project folder for source runs); changing a trained reply gives that reply separate history. Existing quizzes have no saved historical counts, so learning history starts with this version.
+
 Named repertoires are standard PGN files in:
 
 ```text
@@ -55,15 +63,22 @@ repertoire/
 PGN variations store the complete move tree. Trainable answers are marked in move comments with:
 
 ```text
-[%crm_quiz 1]
+[%TheoryVault_quiz 1]
 ```
+
+Legacy `[%crm_quiz 1]` markers remain readable and are converted to the
+TheoryVault marker when a repertoire is saved.
 
 The app derives single-position quiz prompts from those marks. Each normalized position has exactly one trained reply; saving or importing a newer reply replaces the previous one. Transpositions within one repertoire are combined by normalized FEN and share that single reply.
 
-Use `Import PGN` to load a local `.pgn` file or pasted PGN text. Ordinary PGNs can mark White moves, Black moves, or both sides; PGNs already containing CRM quiz marks preserve those explicit choices. Imported repertoire files accept future additions for either side. Import provides a preview before writing and supports merge or replace when a repertoire name already exists.
+Use `Import PGN` to load a local `.pgn` file or pasted PGN text. Ordinary PGNs can mark White moves, Black moves, or both sides; PGNs already containing TheoryVault quiz marks preserve those explicit choices. Imported repertoire files accept future additions for either side. Import provides a preview before writing and supports merge or replace when a repertoire name already exists.
 
 The app ignores duplicate saves of the same reply and replaces conflicting replies from the same position. Opening names are matched from each prompt's PGN move sequence or normalized transposed position. Positions outside the bundled opening catalog are labeled `Unclassified position` rather than guessed.
 Each opening section starts collapsed and displays the number of saved moves it contains.
+
+In `View repertoire`, use `Sideline` on a saved move, or `Sideline group` inside an opening or branch, to intentionally keep theory inactive. Group actions include saved descendants even when their opening names change, but do not sideline shared lead-in moves. `All`, `Active`, and `Sidelined` filters control browsing; quizzes use active replies only. Sidelined moves retain their notes and training selections in PGN comments using `[%TheoryVault_sidelined 1]`.
+
+Ordinary corrections and replacements never archive or sideline the old reply. Explicitly sidelined replies survive new active alternatives and PGN merges. New moves added beneath a sidelined move stay sidelined, and editing a sidelined reply keeps that status. `Reactivate` restores training; if another reply is active at that position, the app shows the conflict before replacing it. Sidelining applies to the same position/reply across transpositions. A whole-repertoire PGN `replace` import still replaces the file, including any sidelined theory; use `merge` to preserve it.
 
 ## Opening Classification
 
@@ -78,7 +93,7 @@ aliases or naming overrides. ECO codes are shown with opening groups—for examp
 ## Install
 
 ```powershell
-cd C:\Users\reidm\OneDrive\Desktop\codex\chess-repertoire-memorizer
+cd C:\Users\reidm\OneDrive\Desktop\codex\TheoryVault
 python -m venv .venv
 pip install -r requirements.txt
 ```
@@ -89,7 +104,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Click a piece, then click a target square to make a legal move. Pawn promotions auto-promote to queen for this MVP.
+Click a piece, then click a target square to make a legal move. Pawn promotions currently auto-promote to queen.
 
 ## Build the Windows application
 
@@ -104,7 +119,7 @@ powershell -ExecutionPolicy Bypass -File .\build_windows.ps1 -Version v1.0
 The finished release assets are written to:
 
 ```text
-release\Chess-Repertoire-Memorizer-v1.0-Windows.zip
+release\TheoryVault-v1.0-Windows.zip
 ```
 
 The ZIP contains a PyInstaller one-folder distribution. This is more reliable

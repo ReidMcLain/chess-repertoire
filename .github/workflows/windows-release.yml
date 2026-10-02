@@ -1,4 +1,4 @@
-name: Build Windows release
+name: Build TheoryVault Windows release
 
 on:
   push:
@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build-windows:
-    name: Test, build, and publish Windows application
+    name: Test, build, and publish TheoryVault
     runs-on: windows-latest
 
     steps:
@@ -70,8 +70,8 @@ jobs:
       - name: Upload GitHub Actions artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Chess-Repertoire-Memorizer-${{ steps.version.outputs.release_tag }}-Windows
-          path: release/Chess-Repertoire-Memorizer-${{ steps.version.outputs.release_tag }}-Windows.zip
+          name: TheoryVault-${{ steps.version.outputs.release_tag }}-Windows
+          path: release/TheoryVault-${{ steps.version.outputs.release_tag }}-Windows.zip
           if-no-files-found: error
 
       - name: Attach assets to GitHub Release
@@ -90,7 +90,7 @@ jobs:
               gh release create $env:RELEASE_TAG `
                   --repo $env:GITHUB_REPOSITORY `
                   --verify-tag `
-                  --title "Chess Repertoire Memorizer $env:RELEASE_TAG" `
+                  --title "TheoryVault $env:RELEASE_TAG" `
                   --generate-notes
               if ($LASTEXITCODE -ne 0) {
                   throw "Could not create the GitHub Release for $env:RELEASE_TAG."
@@ -98,7 +98,7 @@ jobs:
           }
 
           gh release upload $env:RELEASE_TAG `
-              "release/Chess-Repertoire-Memorizer-$env:RELEASE_TAG-Windows.zip" `
+              "release/TheoryVault-$env:RELEASE_TAG-Windows.zip" `
               --repo $env:GITHUB_REPOSITORY `
               --clobber
           if ($LASTEXITCODE -ne 0) {

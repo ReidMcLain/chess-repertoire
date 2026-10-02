@@ -4,6 +4,8 @@ import csv
 import hashlib
 import io
 import json
+import hashlib
+import random
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -194,6 +196,177 @@ class BundledOpeningClassifier:
         if best is not None:
             return best
         return self._header_fallback(headers or {})
+
+    def recognition_questions(self, level: str) -> list[dict[str, str | list[str]]]:
+        """Return representative, named catalog positions for a recognition quiz.
+
+        This deliberately derives questions from the same bundled TSV used for
+        normal classification.  The catalog's breadth is also a useful proxy
+        for which names are worth learning first: a family/variation with many
+        catalog continuations gets a representative position before an obscure
+        one-off name.
+        """
+        if level not in {"families", "variations", "all_variations", "deep_eco"}:
+            raise ValueError(f"Unknown recognition level: {level}")
+
+        entries = [entry for group in self._prefixes.values() for entry in group]
+        grouped: dict[str, list[_DatasetEntry]] = defaultdict(list)
+
+        def label_for(entry: _DatasetEntry) -> str | None:
+            opening, variation, _subvariation = split_opening_name(entry.name)
+            if level == "families":
+                return opening
+            if level in {"variations", "all_variations"}:
+                return f"{opening}: {variation}" if variation else None
+            return f"{entry.eco} · {entry.name}"
+
+        def is_base_entry(entry: _DatasetEntry) -> bool:
+            opening, variation, subvariation = split_opening_name(entry.name)
+            return (
+                (level == "families" and entry.name == opening)
+                or (level in {"variations", "all_variations"} and bool(variation) and not subvariation)
+                or level == "deep_eco"
+            )
+
+        for entry in entries:
+            if (key := label_for(entry)) is not None:
+                grouped[key].append(entry)
+
+        # A position identifies a name only when every catalog line that
+        # reaches that exact position belongs to that same name at this quiz
+        # level.  Indexing every prefix (and not just final ECO positions)
+        # lets a Najdorf stop at ...a6, for example, rather than at a later
+        # theoretical continuation in its source line.
+        labels_with_base = {
+            label
+            for entry in entries
+            if (label := label_for(entry)) is not None and is_base_entry(entry)
+        }
+        position_labels: dict[str, set[str]] = defaultdict(set)
+        for entry in entries:
+            label = label_for(entry)
+            if label is None or (label in labels_with_base and not is_base_entry(entry)):
+                continue
+            board = chess.Board()
+            for move_uci in entry.moves:
+                board.push_uci(move_uci)
+                position_labels[position_key(board)].add(label)
+
+        limits = {"families": 60, "variations": 150, "all_variations": None, "deep_eco": None}
+        # Prefer well-represented names.  A middling-depth position is more
+        # recognizable than the first move, without turning this into a deep
+        # theory drill.
+        ranked = sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0]))
+        if limits[level] is not None:
+            ranked = ranked[: limits[level]]
+
+        def identifies(label: str, labels_at_position: set[str]) -> bool:
+            if labels_at_position == {label}:
+                return True
+            if label not in labels_at_position:
+                return False
+            # Some ECO names are aliases for the same setup (not genuinely
+            # different board positions).  Let the catalog's more established
+            # identity claim that setup, while the smaller alias continues to
+            # its next distinguishing move.  This keeps Taimanov at its
+            # ...e6/...Nc6 setup instead of needlessly waiting for ...a6.
+            return all(
+                len(grouped[label]) > len(grouped[other])
+                for other in labels_at_position
+                if other != label
+            )
+
+        questions: list[dict[str, str | list[str]]] = []
+        for label, group in ranked:
+            # A catalog row whose name stops at this quiz identity is its
+            # defining line: `... a6` for Najdorf, `... g6` for Accelerated
+            # Dragon, and so on.  Do not let a child line's sparse prefix make
+            # an identity appear to start earlier than the catalog says it
+            # does.  If the defining position is genuinely shared, an
+            # extension is used only until it becomes unique.
+            base_entries = []
+            for entry in group:
+                if is_base_entry(entry):
+                    base_entries.append(entry)
+            base_entries.sort(key=lambda entry: (len(entry.moves), entry.eco, entry.name, entry.moves))
+
+            defining: list[tuple[int, _DatasetEntry, tuple[str, ...], str]] = []
+            candidates = base_entries or group
+            for base in candidates:
+                extensions = [
+                    entry
+                    for entry in group
+                    if entry.moves[: len(base.moves)] == base.moves
+                ] or [base]
+                for entry in extensions:
+                    minimum_ply = len(base.moves)
+                    board = chess.Board()
+                    prefix: list[str] = []
+                    for ply, move_uci in enumerate(entry.moves, start=1):
+                        board.push_uci(move_uci)
+                        prefix.append(move_uci)
+                        if ply < minimum_ply:
+                            continue
+                        if identifies(label, position_labels[position_key(board)]):
+                            defining.append((ply, entry, tuple(prefix), board.fen(en_passant="legal")))
+                            break
+            # Every usable catalog identity should resolve at its complete
+            # line. Keep a defensive fallback for a catalog ambiguity while
+            # still preferring the shortest available representative.
+            if defining:
+                _ply, representative, moves, fen = min(
+                    defining,
+                    key=lambda item: (item[0], item[1].eco, item[1].name, item[2]),
+                )
+            else:
+                representative = min(group, key=lambda entry: (len(entry.moves), entry.eco, entry.name))
+                moves = representative.moves
+                fen = self._fen_for_moves(moves)
+            before_board = chess.Board()
+            for move_uci in moves[:-1]:
+                before_board.push_uci(move_uci)
+            prompt_id = f"opening-recognition:{level}:{position_key(chess.Board(fen))}:{label}"
+            questions.append(
+                {
+                    "prompt_id": prompt_id,
+                    "move_uci": hashlib.sha1(label.encode("utf-8")).hexdigest(),
+                    "answer": label,
+                    "eco": representative.eco,
+                    "fen": fen,
+                    "before_fen": before_board.fen(en_passant="legal"),
+                    "defining_move_uci": moves[-1],
+                    "moves": list(moves),
+                }
+            )
+        return questions
+
+    @staticmethod
+    def _fen_for_moves(moves: tuple[str, ...]) -> str:
+        board = chess.Board()
+        for text in moves:
+            board.push_uci(text)
+        return board.fen(en_passant="legal")
+
+    def recognition_options(self, questions: list[dict[str, str | list[str]]], index: int) -> list[str]:
+        """Create one correct answer plus four catalog-near distractors."""
+        question = questions[index]
+        answer = str(question["answer"])
+        eco_prefix = str(question["eco"])[:1]
+        moves = tuple(question["moves"])
+
+        def closeness(other: dict[str, str | list[str]]) -> tuple[int, int, str]:
+            other_moves = tuple(other["moves"])
+            shared = sum(a == b for a, b in zip(moves, other_moves))
+            eco_match = int(str(other["eco"])[:1] == eco_prefix)
+            return (-eco_match, -shared, str(other["answer"]))
+
+        alternatives = sorted(
+            (item for item in questions if str(item["answer"]) != answer), key=closeness
+        )
+        choices = [answer] + [str(item["answer"]) for item in alternatives[:4]]
+        seed = int(hashlib.sha1(str(question["prompt_id"]).encode("utf-8")).hexdigest()[:16], 16)
+        random.Random(seed).shuffle(choices)
+        return choices
 
     @staticmethod
     def _header_fallback(headers: Mapping[str, str]) -> OpeningMatch:

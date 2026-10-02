@@ -6,9 +6,11 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import chess
 import chess.pgn
+from PIL import Image, ImageTk
 
 from app_paths import repertoire_directory, resource_directory, resource_path
 from opening_classifier import OPENING_CLASSIFIER
+from quiz_history import QuizHistory
 from repertoire_store import RepertoireInfo, RepertoireStore, position_key
 
 
@@ -26,6 +28,7 @@ SUCCESS = "#15803d"
 DESTRUCTIVE = "#b91c1c"
 ASSET_DIR = resource_path("assets", "pieces")
 CHECK_SUCCESS_LOTTIE = resource_path("assets", "check_success.json")
+LOGO_PATH = resource_path("assets", "theoryvault-logo.png")
 REPERTOIRE_DIR = repertoire_directory()
 
 PIECES = {
@@ -38,10 +41,10 @@ PIECES = {
 }
 
 
-class ChessMvpApp:
+class TheoryVaultApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Chess Repertoire Memorizer")
+        self.root.title("TheoryVault")
         self.root.configure(bg=BG)
         self.configure_style()
 
@@ -77,6 +80,7 @@ class ChessMvpApp:
         self.drag_item: int | None = None
         self.piece_images = self.load_piece_images()
         self.store = RepertoireStore(REPERTOIRE_DIR)
+        self.quiz_history = QuizHistory(REPERTOIRE_DIR.parent / "quiz-history.sqlite3")
         self.repertoire_by_label: dict[str, RepertoireInfo] = {}
         self.active_repertoire = tk.StringVar(value="")
         self.toast_frame: tk.Frame | None = None
@@ -88,7 +92,11 @@ class ChessMvpApp:
         left_panel = ttk.Frame(root, padding=16, style="Panel.TFrame")
         left_panel.grid(row=0, column=0, sticky="ns", padx=(12, 6), pady=12)
 
-        ttk.Label(left_panel, text="Repertoire", style="Title.TLabel").pack(anchor="w", pady=(0, 14))
+        self.logo_image = self.load_logo_image()
+        self.logo_header = tk.Label(
+            left_panel, image=self.logo_image, bg=PANEL, borderwidth=0, highlightthickness=0
+        )
+        self.logo_header.pack(anchor="w", pady=(0, 12))
         ttk.Label(left_panel, text="Active repertoire", style="TLabel").pack(anchor="w", pady=(0, 4))
         self.repertoire_combo = ttk.Combobox(
             left_panel,
@@ -120,10 +128,11 @@ class ChessMvpApp:
             highlightthickness=1,
             highlightbackground="#c9a227",
         )
-        self.quiz_title_card.pack_propagate(False)
-        tk.Frame(self.quiz_title_card, width=5, bg="#c9a227").pack(side="left", fill="y")
+        self.quiz_title_card.columnconfigure(1, weight=1)
+        self.quiz_title_card.rowconfigure(0, minsize=106)
+        tk.Frame(self.quiz_title_card, width=5, bg="#c9a227").grid(row=0, column=0, sticky="ns")
         title_copy = tk.Frame(self.quiz_title_card, bg="#111827", padx=16, pady=10)
-        title_copy.pack(side="left", fill="both", expand=True)
+        title_copy.grid(row=0, column=1, sticky="nsew")
         self.quiz_title_kicker = tk.Label(
             title_copy,
             text="OPENING STUDY",
@@ -131,6 +140,8 @@ class ChessMvpApp:
             bg="#111827",
             fg="#d6b84b",
             anchor="w",
+            justify="left",
+            wraplength=BOARD_SIZE - 180,
         )
         self.quiz_title_kicker.pack(fill="x")
         self.quiz_title_name = tk.Label(
@@ -140,6 +151,8 @@ class ChessMvpApp:
             bg="#111827",
             fg="#f9fafb",
             anchor="w",
+            justify="left",
+            wraplength=BOARD_SIZE - 180,
         )
         self.quiz_title_name.pack(fill="x", pady=(1, 0))
         self.quiz_title_branch = tk.Label(
@@ -149,6 +162,8 @@ class ChessMvpApp:
             bg="#111827",
             fg="#d1d5db",
             anchor="w",
+            justify="left",
+            wraplength=BOARD_SIZE - 180,
         )
         self.quiz_title_branch.pack(fill="x", pady=(2, 0))
         self.quiz_title_progress = tk.Label(
@@ -160,7 +175,7 @@ class ChessMvpApp:
             padx=14,
             justify="right",
         )
-        self.quiz_title_progress.pack(side="right", fill="y")
+        self.quiz_title_progress.grid(row=0, column=2, sticky="ns")
         self.canvas = tk.Canvas(board_frame, width=BOARD_SIZE, height=BOARD_SIZE, highlightthickness=0, bg=PANEL)
         self.canvas.pack()
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
@@ -195,13 +210,17 @@ class ChessMvpApp:
         self.right_body = ttk.Frame(self.right_panel, style="Panel.TFrame")
         self.right_body.pack(fill="both", expand=True, pady=(10, 0))
 
+        # Keep this strip present even before the first answer.  Letting the
+        # feedback label appear and disappear changes the window's requested
+        # height, which makes the board jump when an answer is scored.
         feedback_frame = tk.Frame(root, bg=BG)
         feedback_frame.grid(row=1, column=0, columnspan=3, pady=(0, 2))
         self.feedback = tk.StringVar(value="")
         self.feedback_label = tk.Label(
             feedback_frame,
             textvariable=self.feedback,
-            font=("Segoe UI", 13, "bold"),
+            height=1,
+            font=("Segoe UI", 16, "bold"),
             bg=BG,
             fg=TEXT,
         )
@@ -210,7 +229,7 @@ class ChessMvpApp:
         self.quiz_counter_label = tk.Label(
             feedback_frame,
             textvariable=self.quiz_counter,
-            width=14,
+            width=38,
             font=("Segoe UI", 10, "bold"),
             bg=BG,
             fg=MUTED,
@@ -227,6 +246,17 @@ class ChessMvpApp:
         self.draw_board()
         self.update_pgn()
         self.refresh_repertoire_selector()
+
+    def load_logo_image(self) -> ImageTk.PhotoImage:
+        with Image.open(LOGO_PATH) as source:
+            logo = source.convert("RGBA")
+        # Ignore almost invisible pixels when fitting the artwork into the sidebar.
+        # Only the displayed copy is trimmed; the original asset stays intact.
+        bounds = logo.getchannel("A").point(lambda alpha: 255 if alpha > 10 else 0).getbbox()
+        if bounds:
+            logo = logo.crop(bounds)
+        logo.thumbnail((176, 36), Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(logo, master=self.root)
 
     def configure_style(self) -> None:
         style = ttk.Style()
@@ -344,12 +374,12 @@ class ChessMvpApp:
         return 7 - file_index, rank
 
     def current_orientation(self) -> bool:
-        if self.mode == "quiz":
+        if self.mode in {"quiz", "recognition_quiz"}:
             return self.orientation_turn if self.orientation_turn is not None else self.board.turn
         return self.manual_orientation
 
     def flip_board(self) -> None:
-        if self.mode == "quiz":
+        if self.mode in {"quiz", "recognition_quiz"}:
             self.orientation_turn = not self.current_orientation()
         else:
             self.manual_orientation = not self.manual_orientation
@@ -361,7 +391,7 @@ class ChessMvpApp:
         self.draw_board()
 
     def on_mouse_down(self, event: tk.Event) -> None:
-        if self.mode == "quiz" and not self.quiz_input_enabled:
+        if self.mode in {"quiz", "recognition_quiz"} and not self.quiz_input_enabled:
             return
         clicked_square = self.event_to_square(event)
         if clicked_square is None:
@@ -410,9 +440,9 @@ class ChessMvpApp:
         self.drag_item = self.canvas.create_text(x, y, text=symbol, font=("Segoe UI", 36, "bold"))
 
     def try_move(self, from_square: chess.Square, to_square: chess.Square) -> None:
-        if self.mode not in {"play", "edit", "quiz"}:
+        if self.mode not in {"play", "edit", "quiz", "recognition_quiz"}:
             return
-        if self.mode == "quiz" and not self.quiz_input_enabled:
+        if self.mode in {"quiz", "recognition_quiz"} and not self.quiz_input_enabled:
             return
 
         move = self.normalize_user_move(from_square, to_square)
@@ -426,6 +456,8 @@ class ChessMvpApp:
 
         if self.mode == "quiz":
             self.handle_quiz_move(move)
+            return
+        if self.mode == "recognition_quiz":
             return
 
         if self.move_cursor < len(self.move_history):
@@ -756,7 +788,7 @@ class ChessMvpApp:
                 import_button.configure(state="disabled")
                 return
             if result["used_existing_marks"]:
-                mark_note = "existing CRM quiz marks"
+                mark_note = "existing TheoryVault quiz marks"
             elif color_var.get() == "Both":
                 mark_note = "all moves for both sides"
             else:
@@ -836,6 +868,9 @@ class ChessMvpApp:
         card = self.move_history[self.move_cursor - 1]
         if outcome == "replaced":
             self.status.set(f"Replaced the previous reply with {card['move_san']} in {info.name}")
+        elif outcome == "sidelined":
+            self.status.set(f"Saved {card['move_san']} as sidelined in {info.name}; use Reactivate to train it")
+            return
         elif outcome == "added":
             self.status.set(f"Saved {card['move_san']} in {info.name}")
         else:
@@ -889,7 +924,28 @@ class ChessMvpApp:
         self.update_pgn()
 
     def card_key(self, card: dict) -> str:
-        return card.get("prompt_id", f"{card.get('repertoire_id', 'unknown')}:{card['before_fen']}")
+        """Return a stable local key for either supported quiz-card schema.
+
+        Theory prompts are keyed by the repertoire position before the trained
+        move.  Opening Recognition prompts carry a catalog prompt_id and a
+        final-position ``fen`` instead.  Do not use ``dict.get`` with a
+        fallback expression here: Python evaluates that expression before
+        calling ``get``, which would incorrectly require ``before_fen`` on a
+        recognition card.
+        """
+        prompt_id = card.get("prompt_id")
+        if prompt_id:
+            return str(prompt_id)
+
+        position_fen = card.get("before_fen") or card.get("fen")
+        if position_fen:
+            namespace = card.get("repertoire_id") or card.get("quiz_kind") or "unknown"
+            return f"{namespace}:{position_fen}"
+
+        # This should only be reached for an incomplete in-memory card, but
+        # remains deterministic enough for UI attempt tracking and avoids
+        # conflating different recognition answers.
+        return f"{card.get('quiz_kind', 'unknown')}:{card.get('recognition_level', '')}:{card.get('answer', '')}"
 
     def classify_opening(self, card: dict[str, str]) -> dict[str, str]:
         fields = ("eco", "opening", "variation", "subvariation")
@@ -899,6 +955,14 @@ class ChessMvpApp:
 
         moves = self.pgn_uci_moves(card.get("pgn", ""))
         return OPENING_CLASSIFIER.classify(moves).opening_fields()
+
+    def classify_quiz_position(self, card: dict[str, str]) -> dict[str, str]:
+        """Classify the displayed quiz position, without its expected reply."""
+        moves = self.pgn_uci_moves(card.get("pgn", ""))
+        # A quiz card's final PGN move is the answer.  Its board is shown
+        # before that move, so including it here would reveal a later opening
+        # branch in the title.
+        return OPENING_CLASSIFIER.classify(moves[:-1]).opening_fields()
 
     def pgn_uci_moves(self, pgn: str) -> list[str]:
         try:
@@ -1106,6 +1170,33 @@ class ChessMvpApp:
                 selected_cards.append(study_card)
         return selected_cards
 
+    def order_quiz_families(
+        self,
+        nodes: list[tuple[str, bool, tuple[str, ...]]],
+        node_cards: dict[tuple[str, bool, tuple[str, ...]], list[dict]],
+        max_ply: int,
+    ) -> list[tuple[str, bool, tuple[str, ...]]]:
+        """Move weaker root families first without reordering their branches."""
+        scores = self.quiz_history.scores()
+        families: dict[tuple[str, bool, str], list] = {}
+        positions: dict[tuple[str, bool, str], set[tuple[str, str]]] = {}
+        for node in nodes:
+            family = (node[0], node[1], node[2][0])
+            families.setdefault(family, []).append(node)
+            positions.setdefault(family, set()).update(
+                self.quiz_history.key(card)
+                for card in node_cards[node]
+                if self.card_ply(card) <= max_ply
+            )
+
+        def family_score(family: tuple[str, bool, str]) -> float:
+            keys = positions[family]
+            return sum(scores.get(key, 0.5) for key in sorted(keys)) / len(keys) if keys else 0.5
+
+        # Stable ties preserve the original family order. Sort before the existing
+        # shared-position deduplication so lead-ins belong to the first family.
+        return [node for family in sorted(families, key=family_score) for node in families[family]]
+
     def prepare_quiz_cards(self, cards: list[dict]) -> list[dict]:
         prepared = [dict(card) for card in cards]
         block_paths: list[tuple[str, ...]] = []
@@ -1145,25 +1236,14 @@ class ChessMvpApp:
         return f"After {label}"
 
     def show_quiz_title_card(self, card: dict) -> None:
-        classification = self.classify_opening(card)
+        classification = self.classify_quiz_position(card)
         title = self.specific_opening_title(classification)
-        hierarchy = "  ›  ".join(
-            value
-            for value in (
-                classification["opening"],
-                classification["variation"],
-                classification["subvariation"],
-            )
-            if value
-        )
         side = "WHITE" if card.get("repertoire_color") else "BLACK"
         context = self.quiz_context_label(card)
         eco = classification["eco"] or "—"
         self.quiz_title_kicker.configure(text=f"♞  {side} REPERTOIRE  •  ECO {eco}  •  {context.upper()}")
-        self.quiz_title_name.configure(text=self.ellipsize(title, 34))
-        self.quiz_title_branch.configure(
-            text=self.ellipsize(f"Opening family: {hierarchy or 'Unclassified position'}", 58)
-        )
+        self.quiz_title_name.configure(text=title)
+        self.quiz_title_branch.configure(text=self.opening_title_ancestry(classification))
         self.quiz_title_progress.configure(
             text=(
                 f"TREE {card.get('_study_block_index', 1)} / {card.get('_study_block_count', 1)}\n"
@@ -1186,6 +1266,19 @@ class ChessMvpApp:
                 return f"{parent} — {specific}"
         return specific
 
+    @staticmethod
+    def opening_title_ancestry(classification: dict[str, str]) -> str:
+        """Show the headline's parents in their original broad-to-specific order."""
+        path = [
+            classification.get(field, "")
+            for field in ("opening", "variation", "subvariation")
+            if classification.get(field, "")
+        ]
+        if path and path[-1].casefold() in {"main line", "main variation"}:
+            # The headline already includes the immediate parent for these labels.
+            return "  ›  ".join(path[:-2])
+        return "  ›  ".join(path[:-1])
+
     def hide_quiz_title_card(self) -> None:
         self.show_live_opening_title_card()
 
@@ -1196,23 +1289,12 @@ class ChessMvpApp:
     def show_live_opening_title_card(self) -> None:
         classification = self.visible_opening()
         title = self.specific_opening_title(classification)
-        hierarchy = "  ›  ".join(
-            value
-            for value in (
-                classification["opening"],
-                classification["variation"],
-                classification["subvariation"],
-            )
-            if value
-        )
         eco = classification["eco"] or "—"
         turn = "WHITE" if self.board.turn else "BLACK"
 
         self.quiz_title_kicker.configure(text=f"♞  LIVE OPENING  •  ECO {eco}")
-        self.quiz_title_name.configure(text=self.ellipsize(title, 34))
-        self.quiz_title_branch.configure(
-            text=self.ellipsize(f"Opening family: {hierarchy or 'Unclassified position'}", 58)
-        )
+        self.quiz_title_name.configure(text=title)
+        self.quiz_title_branch.configure(text=self.opening_title_ancestry(classification))
         self.quiz_title_progress.configure(
             text=f"MOVE {self.board.fullmove_number}\n{turn} TO MOVE"
         )
@@ -1354,9 +1436,9 @@ class ChessMvpApp:
             card.get("created_at", ""),
         )
 
-    def load_repertoire(self) -> list[dict]:
+    def load_repertoire(self, include_sidelined: bool = False) -> list[dict]:
         try:
-            cards = self.store.compile_all()
+            cards = self.store.compile_all(include_sidelined=True) if include_sidelined else self.store.compile_all()
         except (ValueError, OSError) as exc:
             self.status.set(f"Could not load repertoire: {exc}")
             return []
@@ -1467,17 +1549,52 @@ class ChessMvpApp:
 
     def start_quiz(self) -> None:
         cards = self.load_repertoire()
-        if not cards:
-            self.status.set("No saved repertoire moves yet")
-            self.show_text("No repertoire saved yet.\n\nPlay a move, then click Add move.")
-            return
-
         if self.quiz_dialog is not None and self.quiz_dialog.winfo_exists():
             self.quiz_dialog.lift()
             self.quiz_dialog.focus_force()
             return
 
-        self.show_quiz_selector(cards)
+        self.show_quiz_type_selector(cards)
+
+    def show_quiz_type_selector(self, cards: list[dict]) -> None:
+        """Choose between repertoire move recall and catalog recognition."""
+        dialog = tk.Toplevel(self.root)
+        self.quiz_dialog = dialog
+        dialog.title("Choose Quiz")
+        dialog.configure(bg=PANEL)
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        shell = ttk.Frame(dialog, style="Panel.TFrame", padding=18)
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text="Choose Quiz", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            shell,
+            text="Practice your saved repertoire moves or recognize positions from the bundled ECO catalog.",
+            style="TLabel", foreground=MUTED, wraplength=410,
+        ).pack(anchor="w", pady=(5, 14))
+
+        def close() -> None:
+            self.quiz_dialog = None
+            dialog.destroy()
+
+        def theory() -> None:
+            close()
+            if not cards:
+                self.status.set("No saved repertoire moves yet")
+                self.show_text("No repertoire saved yet.\n\nPlay a move, then click Add move.")
+                return
+            self.show_quiz_selector(cards)
+
+        def recognition() -> None:
+            close()
+            self.show_opening_recognition_selector()
+
+        ttk.Button(shell, text=f"Theory — saved repertoire moves ({len(cards)})", command=theory).pack(fill="x", pady=(0, 8))
+        ttk.Button(shell, text="Opening Recognition — identify the position", style="Primary.TButton", command=recognition).pack(fill="x")
+        ttk.Button(shell, text="Cancel", command=close).pack(anchor="e", pady=(12, 0))
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        dialog.grab_set()
+        dialog.focus_force()
 
     def show_quiz_selector(self, cards: list[dict]) -> None:
         move_paths = [
@@ -1518,6 +1635,7 @@ class ChessMvpApp:
         ]
         maximum_ply = max((self.card_ply(card) for card in eligible_cards), default=1)
         ply_limit_var = tk.StringVar(value=str(maximum_ply))
+        theory_refresher_var = tk.BooleanVar(value=False)
 
         dialog = tk.Toplevel(self.root)
         self.quiz_dialog = dialog
@@ -1632,7 +1750,11 @@ class ChessMvpApp:
                 )
             )
             start_button.configure(
-                text=f"Study Selected Trees ({count} moves)",
+                text=(
+                    f"Start Theory Refresher ({count} theory moves)"
+                    if theory_refresher_var.get()
+                    else f"Study Selected Trees ({count} moves)"
+                ),
                 state="normal" if count else "disabled",
             )
 
@@ -1849,7 +1971,7 @@ class ChessMvpApp:
             limit = current_ply_limit()
             if limit is None:
                 return
-            selected = selected_nodes()
+            selected = self.order_quiz_families(selected_nodes(), node_cards, limit)
             selected_cards = self.study_cards_for_nodes(
                 selected,
                 node_cards,
@@ -1858,16 +1980,45 @@ class ChessMvpApp:
             )
             if not selected_cards:
                 return
-            self.quiz_source_cards = selected_cards[:]
-            close_dialog()
             self.quiz_round_summaries = []
             self.quiz_attempt_counts = {}
+            if theory_refresher_var.get():
+                recognition_cards = self.build_opening_recognition_cards(
+                    "all_variations",
+                    theory_cards=selected_cards,
+                )
+                if not recognition_cards:
+                    self.status.set("No named variations found in selected theory")
+                    self.show_text(
+                        "No named variations from the local opening catalog were found in the selected theory.",
+                        title="Theory Refresher",
+                    )
+                    return
+                close_dialog()
+                self.begin_opening_recognition(recognition_cards)
+                return
+            self.quiz_source_cards = selected_cards[:]
+            close_dialog()
             self.begin_quiz(selected_cards)
 
         selection_actions = ttk.Frame(shell, style="Panel.TFrame")
         selection_actions.pack(fill="x", pady=(12, 8))
         ttk.Button(selection_actions, text="Select all", command=lambda: set_all(True)).pack(side="left")
         ttk.Button(selection_actions, text="Clear all", command=lambda: set_all(False)).pack(side="left", padx=(8, 0))
+
+        ttk.Checkbutton(
+            shell,
+            text="Theory refresher — recognize Named Variations in selected theory",
+            variable=theory_refresher_var,
+            command=update_start_button,
+        ).pack(anchor="w", pady=(0, 3))
+        ttk.Label(
+            shell,
+            text="Off by default. Variations recorded for both White and Black are asked once from each Theory perspective.",
+            style="TLabel",
+            foreground=MUTED,
+            wraplength=440,
+        ).pack(anchor="w", pady=(0, 8))
 
         start_button.configure(command=launch_quiz)
         start_button.pack(fill="x", pady=(0, 8))
@@ -1887,6 +2038,13 @@ class ChessMvpApp:
         dialog.focus_force()
 
     def restart_quiz(self) -> None:
+        if self.mode == "recognition_quiz" or (
+            self.quiz_source_cards and self.quiz_source_cards[0].get("quiz_kind") == "recognition"
+        ):
+            self.quiz_round_summaries = []
+            self.quiz_attempt_counts = {}
+            self.begin_opening_recognition(self.quiz_source_cards)
+            return
         cards = self.quiz_source_cards[:]
         if not cards:
             cards = self.load_repertoire()
@@ -1898,7 +2056,187 @@ class ChessMvpApp:
 
     def replay_missed_moves(self) -> None:
         if self.last_missed_cards:
-            self.begin_quiz(self.last_missed_cards)
+            if self.last_missed_cards[0].get("quiz_kind") == "recognition":
+                self.begin_opening_recognition(self.last_missed_cards)
+            else:
+                self.begin_quiz(self.last_missed_cards)
+
+    def show_opening_recognition_selector(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        self.quiz_dialog = dialog
+        dialog.title("Opening Recognition")
+        dialog.configure(bg=PANEL)
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        shell = ttk.Frame(dialog, style="Panel.TFrame", padding=18)
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text="Opening Recognition", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            shell,
+            text="See a position and choose its name from five plausible answers. Missed positions can be replayed after the round.",
+            style="TLabel", foreground=MUTED, wraplength=430,
+        ).pack(anchor="w", pady=(5, 14))
+
+        def launch(level: str) -> None:
+            self.quiz_dialog = None
+            dialog.destroy()
+            self.quiz_round_summaries = []
+            self.quiz_attempt_counts = {}
+            cards = self.build_opening_recognition_cards(level)
+            self.begin_opening_recognition(cards)
+
+        ttk.Button(shell, text="Parent Families  ·  60 broad openings", style="Primary.TButton", command=lambda: launch("families")).pack(fill="x", pady=(0, 8))
+        ttk.Button(shell, text="Named Variations  ·  150 major variations", command=lambda: launch("variations")).pack(fill="x", pady=(0, 8))
+        ttk.Button(shell, text="Deep ECO  ·  coming soon (full local catalog)", state="disabled").pack(fill="x")
+        ttk.Button(shell, text="Cancel", command=lambda: (setattr(self, "quiz_dialog", None), dialog.destroy())).pack(anchor="e", pady=(12, 0))
+        dialog.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, "quiz_dialog", None), dialog.destroy()))
+        dialog.grab_set()
+        dialog.focus_force()
+
+    def build_opening_recognition_cards(
+        self,
+        level: str,
+        theory_cards: list[dict] | None = None,
+    ) -> list[dict]:
+        """Adapt catalog questions to the existing quiz-history card contract."""
+        questions = OPENING_CLASSIFIER.recognition_questions(level)
+        theory_sides: dict[str, set[bool]] = {}
+        if theory_cards is not None:
+            for theory_card in theory_cards:
+                classification = self.classify_opening(theory_card)
+                opening = classification.get("opening", "")
+                variation = classification.get("variation", "")
+                if not opening or not variation:
+                    continue
+                label = f"{opening}: {variation}"
+                side = theory_card.get("repertoire_color")
+                if side in {chess.WHITE, chess.BLACK}:
+                    theory_sides.setdefault(label, set()).add(side)
+        cards = []
+        for index, question in enumerate(questions):
+            sides = theory_sides.get(question["answer"], set()) if theory_cards is not None else {None}
+            for side in sorted(sides):
+                side_suffix = "" if side is None else f":theory-{'white' if side else 'black'}"
+                cards.append(
+                    {
+                        **question,
+                        "prompt_id": f"{question['prompt_id']}{side_suffix}",
+                        "options": OPENING_CLASSIFIER.recognition_options(questions, index),
+                        "quiz_kind": "recognition",
+                        "recognition_level": level,
+                        "theory_orientation": side,
+                    }
+                )
+        return cards
+
+    def begin_opening_recognition(self, cards: list[dict]) -> None:
+        self.mode = "recognition_quiz"
+        self.quiz_source_cards = cards[:]
+        self.quiz_cards = cards[:]
+        self.quiz_index = 0
+        self.quiz_score = 0
+        self.quiz_results = []
+        self.last_missed_cards = []
+        self.quiz_input_enabled = False
+        self.quiz_animation_serial += 1
+        self.update_quiz_counter()
+        self.clear_quiz_actions()
+        self.clear_feedback()
+        self.load_current_recognition_card()
+
+    def load_current_recognition_card(self) -> None:
+        if self.quiz_index >= len(self.quiz_cards):
+            total = len(self.quiz_cards)
+            self.last_missed_cards = [result["card"] for result in self.quiz_results if not result["correct"]]
+            self.quiz_round_summaries.append((self.quiz_score, total))
+            self.mode = "play"
+            self.manual_orientation = chess.WHITE
+            self.show_feedback("✓", f"Recognition complete: {self.quiz_score}/{total}", SUCCESS)
+            self.status.set(f"Recognition complete: {self.quiz_score}/{total}")
+            self.show_quiz_summary()
+            self.show_quiz_end_actions(has_misses=bool(self.last_missed_cards))
+            self.hide_quiz_title_card()
+            self.draw_board()
+            return
+
+        card = self.quiz_cards[self.quiz_index]
+        self.quiz_animation_serial += 1
+        animation_serial = self.quiz_animation_serial
+        self.board = chess.Board(card["before_fen"])
+        # Recognition is about seeing an opponent establish their system.
+        # Keep the board facing the side *opposite* the player making the
+        # defining move, including while that move is animated.
+        self.orientation_turn = card.get("theory_orientation")
+        if self.orientation_turn is None:
+            self.orientation_turn = not self.board.turn
+        self.selected_square = None
+        self.dragging_square = None
+        self.quiz_input_enabled = False
+        level_names = {
+            "families": "PARENT FAMILIES",
+            "variations": "NAMED VARIATIONS",
+            "all_variations": "THEORY VARIATIONS",
+            "deep_eco": "DEEP ECO",
+        }
+        self.quiz_title_kicker.configure(text=f"♞  OPENING RECOGNITION  •  {level_names[card['recognition_level']]}")
+        self.quiz_title_name.configure(text="Identify this opening")
+        self.quiz_title_branch.configure(text="Choose the best name for the position.")
+        self.quiz_title_progress.configure(text=f"{self.quiz_index + 1}\nOF {len(self.quiz_cards)}")
+        if not self.quiz_title_card.winfo_manager():
+            self.quiz_title_card.pack(fill="x", pady=(0, 8), before=self.canvas)
+        self.status.set(f"Opening Recognition — watch the defining move ({self.quiz_index + 1}/{len(self.quiz_cards)})")
+        self.draw_board()
+        self.show_recognition_move_preview()
+        self.animate_quiz_setup_move(
+            chess.Move.from_uci(card["defining_move_uci"]),
+            card["fen"],
+            animation_serial,
+        )
+
+    def show_recognition_move_preview(self) -> None:
+        self.right_title.configure(text="Opening Recognition")
+        self.clear_right_body()
+        ttk.Label(self.right_body, text="Watch the defining move", style="Title.TLabel").pack(anchor="w", pady=(0, 5))
+        ttk.Label(
+            self.right_body,
+            text="The choices will appear as soon as the move is played.",
+            style="TLabel",
+            foreground=MUTED,
+            wraplength=350,
+        ).pack(anchor="w")
+
+    def show_recognition_answers(self, card: dict) -> None:
+        self.right_title.configure(text="Opening Recognition")
+        self.clear_right_body()
+        ttk.Label(self.right_body, text="What opening is this?", style="Title.TLabel").pack(anchor="w", pady=(0, 5))
+        ttk.Label(self.right_body, text="Choose one answer.", style="TLabel", foreground=MUTED).pack(anchor="w", pady=(0, 12))
+        options = card["options"]
+        for number, option in enumerate(options, start=1):
+            ttk.Button(
+                self.right_body, text=f"{number}. {option}", command=lambda value=option: self.answer_opening_recognition(value)
+            ).pack(fill="x", pady=(0, 7))
+
+    def answer_opening_recognition(self, answer: str) -> None:
+        if self.mode != "recognition_quiz" or self.quiz_index >= len(self.quiz_cards):
+            return
+        card = self.quiz_cards[self.quiz_index]
+        correct = answer == card["answer"]
+        self.quiz_attempt_counts[self.card_key(card)] = self.quiz_attempt_counts.get(self.card_key(card), 0) + 1
+        if correct:
+            self.quiz_score += 1
+            self.show_feedback("✓", f"Correct: {answer}", SUCCESS)
+        else:
+            self.show_feedback("✕", f"Wrong. Correct answer: {card['answer']}", "#dc2626")
+        self.add_quiz_result(card, correct)
+        for child in self.right_body.winfo_children():
+            if isinstance(child, ttk.Button):
+                child.configure(state="disabled")
+        self.root.after(1000, self.advance_opening_recognition)
+
+    def advance_opening_recognition(self) -> None:
+        self.clear_feedback()
+        self.quiz_index += 1
+        self.load_current_recognition_card()
 
     def begin_quiz(self, cards: list[dict]) -> None:
         self.mode = "quiz"
@@ -2073,7 +2411,7 @@ class ChessMvpApp:
         def animate(frame: int) -> None:
             if (
                 animation_serial != self.quiz_animation_serial
-                or self.mode != "quiz"
+                or self.mode not in {"quiz", "recognition_quiz"}
                 or self.quiz_index >= len(self.quiz_cards)
             ):
                 self.canvas.delete("quiz-moving-piece")
@@ -2083,6 +2421,14 @@ class ChessMvpApp:
                 self.canvas.delete("quiz-moving-piece")
                 self.quiz_input_enabled = True
                 current = self.quiz_cards[self.quiz_index]
+                if self.mode == "recognition_quiz":
+                    self.quiz_input_enabled = False
+                    self.status.set(
+                        f"Opening Recognition — position {self.quiz_index + 1}/{len(self.quiz_cards)}"
+                    )
+                    self.show_recognition_answers(current)
+                    self.draw_board()
+                    return
                 study_path = tuple(current.get("_study_path", self.opening_path(current)))
                 self.status.set(
                     f"{' > '.join(study_path)} — your move "
@@ -2149,11 +2495,12 @@ class ChessMvpApp:
             return
 
         orientation_before_move = self.board.turn
+        san = self.board.san(move)
         self.board.push(move)
         self.orientation_turn = orientation_before_move
         self.add_quiz_result(card, False)
-        self.show_feedback("✕", f"Wrong. Correct move: {card['move_san']}", "#dc2626")
-        self.status.set(f"Wrong. Correct move: {card['move_san']}")
+        self.show_feedback("✕", f"You played {san}. Correct move: {card['move_san']}", "#dc2626")
+        self.status.set(f"You played {san}. Correct move: {card['move_san']}")
         self.draw_board()
         self.animate_incorrect_move_square(move.to_square)
         self.root.after(1000, self.advance_quiz)
@@ -2281,10 +2628,11 @@ class ChessMvpApp:
         return (3 * inv * inv * t * y1) + (3 * inv * t * t * y2) + (t * t * t)
 
     def show_feedback(self, symbol: str, message: str, color: str) -> None:
-        self.feedback_label.configure(fg=color, font=("Segoe UI", 16, "bold"))
+        self.feedback_label.configure(fg=color)
         self.feedback.set(f"{symbol} {message}")
 
     def add_quiz_result(self, card: dict, correct: bool) -> None:
+        self.quiz_history.record(card, correct)
         self.quiz_results.append({"card": card, "correct": correct})
         self.update_quiz_counter()
 
@@ -2292,10 +2640,14 @@ class ChessMvpApp:
         if not self.quiz_cards:
             self.quiz_counter.set("")
             return
-        self.quiz_counter.set(f"{len(self.quiz_results)} / {len(self.quiz_cards)}")
+        answered = len(self.quiz_results)
+        percent = round((self.quiz_score / answered) * 100) if answered else 0
+        self.quiz_counter.set(
+            f"Score: {self.quiz_score}/{answered} correct ({percent}%)  •  {answered}/{len(self.quiz_cards)} answered"
+        )
 
     def clear_feedback(self) -> None:
-        self.feedback_label.configure(fg=TEXT, font=("Segoe UI", 13, "bold"))
+        self.feedback_label.configure(fg=TEXT)
         self.feedback.set("")
 
     def clear_quiz_actions(self) -> None:
@@ -2308,7 +2660,7 @@ class ChessMvpApp:
         if has_misses:
             ttk.Button(
                 self.quiz_actions_frame,
-                text="Only Replay Missed moves",
+                text=("Only Replay Missed positions" if self.last_missed_cards and self.last_missed_cards[0].get("quiz_kind") == "recognition" else "Only Replay Missed moves"),
                 command=self.replay_missed_moves,
             ).pack(side="left")
 
@@ -2324,10 +2676,12 @@ class ChessMvpApp:
         for index, (score, round_total) in enumerate(self.quiz_round_summaries, start=1):
             lines.append(f"{index}. {score}/{round_total}")
 
-        lines.extend(["", "Attempts per move:"])
+        recognition = bool(self.quiz_cards and self.quiz_cards[0].get("quiz_kind") == "recognition")
+        lines.extend(["", "Attempts per position:" if recognition else "Attempts per move:"])
         for card in self.quiz_cards:
             attempts = self.quiz_attempt_counts.get(self.card_key(card), 0)
-            lines.append(f"- {card['move_san']}: {attempts} attempt(s)")
+            label = card["answer"] if recognition else card["move_san"]
+            lines.append(f"- {label}: {attempts} attempt(s)")
 
         self.show_text("\n".join(lines))
 
@@ -2342,7 +2696,7 @@ class ChessMvpApp:
                 self.manual_orientation = chess.WHITE
             self.draw_board()
         self.set_repertoire_explorer_active(True)
-        self.repertoire_explorer_cards = self.load_repertoire()
+        self.repertoire_explorer_cards = self.load_repertoire(include_sidelined=True)
         for card in self.repertoire_explorer_cards:
             card["_continuation_keys"] = self.repertoire_continuation_keys(card)
         self.render_repertoire_explorer()
@@ -2361,13 +2715,18 @@ class ChessMvpApp:
             return
 
         show_all = self.move_cursor == 0 and position_key(self.board) == position_key(chess.Board())
+        status_filter = getattr(self, "repertoire_status_filter", "All")
+        filter_bar = ttk.Frame(self.right_body, style="Panel.TFrame")
+        filter_bar.pack(fill="x", pady=(0, 8))
+        for label in ("All", "Active", "Sidelined"):
+            ttk.Button(filter_bar, text=f"• {label}" if label == status_filter else label,
+                       command=lambda value=label: self.set_repertoire_status_filter(value)).pack(side="left", padx=(0, 5))
+        all_cards = [card for card in all_cards if status_filter == "All"
+                     or bool(card.get("sidelined")) == (status_filter == "Sidelined")]
         cards = self.filter_repertoire_continuations(all_cards, self.board, show_all=show_all)
         if not cards:
-            self.show_text(
-                "No saved repertoire lines continue from this position.\n\n"
-                "Use the board arrows to step back, or Reset board to leave the repertoire explorer.",
-                title="Saved Repertoire",
-            )
+            ttk.Label(self.right_body, text="No matching saved moves at this position.",
+                      style="TLabel").pack(anchor="w")
             self.status.set("No saved repertoire continuations from this position")
             return
 
@@ -2446,6 +2805,69 @@ class ChessMvpApp:
         self.repertoire_scroll_fraction = 0.0
         self.render_repertoire_explorer()
 
+    def set_repertoire_status_filter(self, value: str) -> None:
+        self.repertoire_status_filter = value
+        self.render_repertoire_explorer()
+
+    def render_sideline_actions(self, parent: ttk.Frame, cards: list[dict]) -> None:
+        cards = self.sideline_group_cards(cards)
+        actions = ttk.Frame(parent, style="Panel.TFrame")
+        actions.pack(anchor="w", pady=(4, 6))
+        for sidelined, label in ((True, "Sideline group"), (False, "Reactivate group")):
+            eligible = [card for card in cards if bool(card.get("sidelined")) != sidelined]
+            if eligible:
+                ttk.Button(actions, text=f"{label} ({len(eligible)})",
+                           command=lambda chosen=eligible, value=sidelined: self.change_sidelined(chosen, value)).pack(side="left", padx=(0, 5))
+
+    def sideline_group_cards(self, cards: list[dict]) -> list[dict]:
+        """Include actual descendants even when their opening classification changes."""
+        prefixes = [tuple(self.pgn_uci_moves(card["pgn"])) for card in cards]
+        result = list(cards)
+        for candidate in getattr(self, "repertoire_explorer_cards", []):
+            if candidate in result or not cards:
+                continue
+            if (candidate["repertoire_id"], candidate["repertoire_color"]) != (
+                cards[0]["repertoire_id"], cards[0]["repertoire_color"]
+            ):
+                continue
+            path = tuple(self.pgn_uci_moves(candidate["pgn"]))
+            if any(prefix and len(path) > len(prefix) and path[:len(prefix)] == prefix for prefix in prefixes):
+                result.append(candidate)
+        return result
+
+    def change_sidelined(self, cards: list[dict], sidelined: bool) -> None:
+        if not cards:
+            return
+        info = self.store.get(cards[0]["repertoire_id"])
+        if info is None:
+            self.status.set("The repertoire file could not be found")
+            return
+        choices = [(card["position_key"], card["move_uci"]) for card in cards]
+        replace_conflicts = False
+        if not sidelined:
+            try:
+                active = {card["position_key"]: card for card in self.store.compile(info)}
+            except (ValueError, OSError) as exc:
+                self.status.set(str(exc))
+                return
+            conflicts = [(active[key]["move_san"], chess.Board(active[key]["before_fen"]).san(chess.Move.from_uci(move)))
+                         for key, move in choices if key in active and active[key]["move_uci"] != move]
+            if conflicts:
+                details = "\n".join(f"{old} → {new}" for old, new in conflicts)
+                if not messagebox.askyesno("Replace active replies?",
+                    f"Reactivating will replace these active replies:\n\n{details}\n\n"
+                    "The replaced replies will not be sidelined. Continue?", parent=self.root):
+                    return
+                replace_conflicts = True
+        try:
+            self.store.set_answers_sidelined(info, choices, sidelined, replace_conflicts=replace_conflicts)
+        except (ValueError, OSError) as exc:
+            self.status.set(str(exc))
+            return
+        self.capture_repertoire_scroll_position()
+        self.view_repertoire()
+        self.status.set(f"{'Sidelined' if sidelined else 'Reactivated'} {len(choices)} saved move(s)")
+
     def render_child_section(
         self,
         parent: ttk.Frame,
@@ -2474,6 +2896,7 @@ class ChessMvpApp:
         header.pack(fill="x")
 
         index = start_index
+        self.render_sideline_actions(content, cards)
         index = self.render_repertoire_move_tree(content, cards, index)
         self.restore_repertoire_section(header, content, label, state_key)
         return index
@@ -2505,6 +2928,7 @@ class ChessMvpApp:
         header.pack(fill="x")
 
         index = start_index
+        self.render_sideline_actions(content, cards)
         for variation, variation_cards in self.classification_groups(cards, "variation").items():
             index = self.render_variation_section(
                 content,
@@ -2627,6 +3051,7 @@ class ChessMvpApp:
                 font=("Segoe UI", 9, "bold"),
             ).pack(anchor="w")
             ttk.Separator(divider, orient="horizontal").pack(fill="x", pady=(4, 0))
+            self.render_sideline_actions(divider, branch_cards)
             index = self.render_repertoire_move_tree(
                 parent,
                 branch_cards,
@@ -2671,6 +3096,8 @@ class ChessMvpApp:
 
         context = card.get("contexts", [""])[0] or "Starting position"
         summary = self.ellipsize(self.repertoire_move_counter(card), 58)
+        if card.get("sidelined"):
+            summary = f"Sidelined · {summary}"
         move_line = self.ellipsize(f"{context} → {card['move_san']}", 62)
 
         ttk.Label(row, text=summary, style="TLabel", font=("Segoe UI", 10, "bold")).grid(
@@ -2691,6 +3118,9 @@ class ChessMvpApp:
         ttk.Button(row, text="Edit", width=7, command=lambda c=card: self.open_repertoire_card(c, "edit")).grid(
             row=1, column=2, pady=(3, 0)
         )
+        ttk.Button(row, text="Reactivate" if card.get("sidelined") else "Sideline",
+                   command=lambda c=card: self.change_sidelined([c], not c.get("sidelined", False))).grid(
+                       row=2, column=1, columnspan=2, sticky="ew", pady=(5, 0))
 
     def toggle_repertoire_details(self, row: ttk.Frame, card: dict[str, str]) -> None:
         existing = getattr(row, "details_frame", None)
@@ -2700,7 +3130,7 @@ class ChessMvpApp:
             return
 
         details = ttk.Frame(row, style="Panel.TFrame", padding=(0, 6, 0, 0))
-        details.grid(row=2, column=0, columnspan=3, sticky="ew")
+        details.grid(row=3, column=0, columnspan=3, sticky="ew")
         classification = self.classify_opening(card)
         accepted_text = ", ".join(
             f"{answer['move_san']} ({answer['move_uci']})" for answer in card["accepted_moves"]
@@ -2802,6 +3232,8 @@ class ChessMvpApp:
         self.clear_quiz_actions()
         self.restore_board_to_cursor()
         action = "Editing" if mode == "edit" else "Viewing"
+        if card.get("sidelined"):
+            action += " sidelined move"
         self.status.set(f"{action} {card['move_san']} — use ← and → to navigate")
 
     def repertoire_line_start_cursor(self, mode: str, move_count: int) -> int:
@@ -2936,6 +3368,8 @@ class ChessMvpApp:
 
         card = self.active_line_card
         mode_text = "EDITING" if editing else "VIEWING"
+        if card is not None and card.get("sidelined"):
+            mode_text += " · SIDELINED"
         mode_color = "#b45309" if editing else "#1d4ed8"
         tk.Label(
             self.right_body,
@@ -2994,7 +3428,20 @@ class ChessMvpApp:
         container.pack(fill="both", expand=True)
 
         canvas = tk.Canvas(container, bg=PANEL, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        # Use a classic scrollbar here so the Saved Repertoire browser keeps a
+        # clearly visible thumb on every Windows ttk theme.
+        scrollbar = tk.Scrollbar(
+            container,
+            orient="vertical",
+            command=canvas.yview,
+            width=14,
+            bg="#c7ced8",
+            activebackground="#8b98aa",
+            troughcolor="#eef1f5",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+        )
         scroll_frame = ttk.Frame(canvas, style="Panel.TFrame")
         window_id = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
 
@@ -3009,6 +3456,8 @@ class ChessMvpApp:
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
+        scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
         self.repertoire_scroll_canvas = canvas
         return scroll_frame
 
@@ -3054,19 +3503,20 @@ class ChessMvpApp:
         text_box.configure(state="disabled")
 
 
-def run_desktop_mvp() -> None:
+def run_theoryvault() -> None:
     try:
         root = tk.Tk()
     except tk.TclError as exc:
         messagebox.showerror("Startup error", str(exc))
         return
-    ChessMvpApp(root)
+    TheoryVaultApp(root)
     root.mainloop()
 
 
 def validate_runtime_resources() -> list[str]:
     """Return packaging/runtime validation errors without starting the GUI."""
     required = [
+        LOGO_PATH,
         CHECK_SUCCESS_LOTTIE,
         resource_path("data", "openings", "metadata.json"),
         resource_path("data", "openings", "openings.tsv"),
@@ -3093,5 +3543,5 @@ def validate_runtime_resources() -> list[str]:
 if __name__ == "__main__":
     if "--packaging-self-test" in sys.argv:
         raise SystemExit(1 if validate_runtime_resources() else 0)
-    run_desktop_mvp()
+    run_theoryvault()
 

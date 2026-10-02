@@ -87,13 +87,13 @@ try {
     $versionResource = Join-Path $runtimeDirectory "VERSION"
     Set-Content -LiteralPath $versionResource -Value $numericVersion -Encoding ascii
 
-    $env:CRM_BUILD_VERSION = $numericVersion
-    $env:CRM_VERSION_RESOURCE = $versionResource
-    & $python -m PyInstaller --clean --noconfirm chess-repertoire.spec
+    $env:THEORYVAULT_BUILD_VERSION = $numericVersion
+    $env:THEORYVAULT_VERSION_RESOURCE = $versionResource
+    & $python -m PyInstaller --clean --noconfirm TheoryVault.spec
     Confirm-LastCommand "PyInstaller"
 
-    $distributionDirectory = Join-Path $projectRoot "dist\Chess Repertoire Memorizer"
-    $builtExecutable = Join-Path $distributionDirectory "Chess Repertoire Memorizer.exe"
+    $distributionDirectory = Join-Path $projectRoot "dist\TheoryVault"
+    $builtExecutable = Join-Path $distributionDirectory "TheoryVault.exe"
     if (-not (Test-Path -LiteralPath $builtExecutable)) {
         throw "PyInstaller did not create the expected executable: $builtExecutable"
     }
@@ -119,14 +119,14 @@ try {
     finally {
         $env:LOCALAPPDATA = $previousLocalAppData
     }
-    $expectedUserDirectory = Join-Path $smokeLocalAppData "ChessRepertoireMemorizer\repertoire"
+    $expectedUserDirectory = Join-Path $smokeLocalAppData "TheoryVault\repertoire"
     if (-not (Test-Path -LiteralPath $expectedUserDirectory)) {
         throw "The packaged app did not create its per-user repertoire directory."
     }
 
     $releaseDirectory = Join-Path $projectRoot "release"
     New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
-    $assetBaseName = "Chess-Repertoire-Memorizer-$Version-Windows"
+    $assetBaseName = "TheoryVault-$Version-Windows"
     $releaseZip = Join-Path $releaseDirectory "$assetBaseName.zip"
     Compress-Archive `
         -Path (Join-Path $distributionDirectory "*") `
@@ -138,7 +138,7 @@ try {
     Write-Host "  $releaseZip"
 }
 finally {
-    Remove-Item Env:CRM_BUILD_VERSION -ErrorAction SilentlyContinue
-    Remove-Item Env:CRM_VERSION_RESOURCE -ErrorAction SilentlyContinue
+    Remove-Item Env:THEORYVAULT_BUILD_VERSION -ErrorAction SilentlyContinue
+    Remove-Item Env:THEORYVAULT_VERSION_RESOURCE -ErrorAction SilentlyContinue
     Pop-Location
 }

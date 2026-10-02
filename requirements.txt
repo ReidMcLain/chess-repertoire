@@ -1,1 +1,2 @@
 python-chess>=1.999
+Pillow>=10.0

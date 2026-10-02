@@ -1,0 +1,147 @@
+[Event "MA-001 - Anastasia: knight seals g8 and g6"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "1"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "8/4N1pk/8/8/8/8/1K6/R7 w - - 0 1"]
+[Pattern "Mates > Rook and knight > Anastasia"]
+
+{Find mate in one. The knight controls g8 and g6. The black pawn blocks g7.}
+1. Rh1# {The h-file closes every remaining flight.} 1-0
+
+[Event "MA-002 - Arabian: knight protects the mating rook"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "2"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "7k/R7/5N2/8/8/8/8/K7 w - - 0 1"]
+[Pattern "Mates > Rook and knight > Arabian"]
+
+{Find mate in one. Distinguish protecting the rook from merely restricting the king.}
+1. Rh7# {Nf6 protects h7 and controls g8. The rook controls g7.} 1-0
+
+[Event "MA-003 - Smothered mate: the king's own army blocks escape"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "3"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "6rk/6pp/8/4N3/8/8/8/K7 w - - 0 1"]
+[Pattern "Mates > Knight > Smothered"]
+
+{Find mate in one.}
+1. Nf7# {The knight's check cannot be interposed against. Black's own pieces occupy every king flight.} 1-0
+
+[Event "MA-004 - Back rank: three pawns imprison the king"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "4"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "6k1/5ppp/8/8/8/8/8/RK6 w - - 0 1"]
+[Pattern "Mates > Heavy pieces > Back rank"]
+
+{Find mate in one.}
+1. Ra8# {Black cannot leave the eighth rank, capture the rook or block its check.} 1-0
+
+[Event "MA-005 - Ladder: one rook cuts off, the other checks"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "5"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "4k3/1R6/8/8/8/8/8/RK6 w - - 0 1"]
+[Pattern "Mates > Heavy pieces > Ladder"]
+
+{Find mate in one.}
+1. Ra8# {Rb7 cuts off the seventh rank. Moving that rook to b8 instead would allow the king onto the seventh rank.} 1-0
+
+[Event "MA-006 - Opera: bishop supports the back-rank rook"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "6"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "R2nk3/3p1p2/8/6B1/8/8/8/K7 w - - 0 1"]
+[Pattern "Mates > Rook and bishop > Opera"]
+
+{Find mate in one.}
+1. Rxd8# {Bg5 protects d8 and covers e7. Black's pawns occupy d7 and f7.} 1-0
+
+[Event "MA-007 - Morphy: bishop checks while rook cuts off"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "7"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "7k/4B2p/8/8/8/8/8/K5R1 w - - 0 1"]
+[Pattern "Mates > Rook and bishop > Morphy"]
+
+{Find mate in one.}
+1. Bf6# {Rg1 controls g8 and g7; the black pawn occupies h7.} 1-0
+
+[Event "MA-008 - Boden: bishops control crossing diagonals"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "8"]
+[White "White to move"]
+[Black "Mate in one"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "2kr4/3p4/8/8/5B2/8/4B3/K7 w - - 0 1"]
+[Pattern "Mates > Bishops > Boden"]
+
+{Find mate in one.}
+1. Ba6# {Ba6 checks c8 and controls b7. Bf4 covers c7 and b8. Black's own pieces occupy d7 and d8.} 1-0
+
+[Event "NF-001 - Knight royal fork: immediate check on d6"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "9"]
+[White "White to move"]
+[Black "Win the queen"]
+[Result "*"]
+[SetUp "1"]
+[FEN "2q1k3/8/8/8/2N5/8/8/6K1 w - - 0 1"]
+[Pattern "Multiple threats > Fork > Knight > King and queen > Immediate checking fork"]
+
+{Find a checking fork that wins the queen. This is a pattern exercise, not a unique engine-best-move claim.}
+1. Nd6+ {The knight attacks e8 and c8. Black cannot block a knight check and neither the king nor queen can capture d6.}
+1... Kf8 (1... Kd8 2. Nxc8) (1... Kd7 2. Nxc8) (1... Ke7 2. Nxc8)
+2. Nxc8 {The exact same fork works against every legal response.} *
+
+[Event "WM-001 - Windmill: capture, return with check, capture again"]
+[Site "Original teaching position"]
+[Date "2026.09.05"]
+[Round "10"]
+[White "White to move"]
+[Black "Demonstrate two windmill captures"]
+[Result "*"]
+[SetUp "1"]
+[FEN "5r1k/5bRp/5B2/8/8/3B4/8/1K6 w - - 0 1"]
+[Pattern "Named combinations > Windmill > Rook discovers bishop check"]
+
+{Learning demonstration: capture h7, return with check, then capture f7. There are alternative captures and winning moves; this line is selected to teach the mechanism.}
+1. Rxh7+ {The rook takes a pawn and uncovers Bf6-h8. Bd3 protects h7, preventing Kxh7.}
+1... Kg8 {Only legal move.}
+2. Rg7+ {A direct rook check restores the starting mechanism.}
+2... Kh8 {Only legal move.}
+3. Rxf7+ {The rook harvests the bishop while uncovering another check.}
+3... Kg8 {Only legal move.}
+4. Rg7+ Kh8 {The cycle is restored. White has gained a pawn and bishop. This is a mechanism demonstration rather than a shortest-win puzzle.} *

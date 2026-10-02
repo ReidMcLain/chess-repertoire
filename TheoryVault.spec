@@ -17,7 +17,7 @@ from PyInstaller.utils.win32.versioninfo import (
 
 
 project_root = Path(SPECPATH).resolve()
-version_text = os.environ.get("CRM_BUILD_VERSION", "1.0").removeprefix("v")
+version_text = os.environ.get("THEORYVAULT_BUILD_VERSION", "1.0").removeprefix("v")
 version_parts = [int(part) for part in re.findall(r"\d+", version_text)[:4]]
 version_parts.extend([0] * (4 - len(version_parts)))
 version_tuple = tuple(version_parts)
@@ -41,12 +41,12 @@ version_info = VSVersionInfo(
                     "040904B0",
                     [
                         StringStruct("CompanyName", "Reid McLain"),
-                        StringStruct("FileDescription", "Chess Repertoire Memorizer"),
+                        StringStruct("FileDescription", "TheoryVault"),
                         StringStruct("FileVersion", windows_version),
-                        StringStruct("InternalName", "Chess Repertoire Memorizer"),
+                        StringStruct("InternalName", "TheoryVault"),
                         StringStruct("LegalCopyright", "Copyright (c) 2026 Reid McLain"),
-                        StringStruct("OriginalFilename", "Chess Repertoire Memorizer.exe"),
-                        StringStruct("ProductName", "Chess Repertoire Memorizer"),
+                        StringStruct("OriginalFilename", "TheoryVault.exe"),
+                        StringStruct("ProductName", "TheoryVault"),
                         StringStruct("ProductVersion", windows_version),
                     ],
                 )
@@ -60,7 +60,7 @@ version_info_path.parent.mkdir(parents=True, exist_ok=True)
 version_info_path.write_text(str(version_info), encoding="utf-8")
 
 version_resource = Path(
-    os.environ.get("CRM_VERSION_RESOURCE", str(project_root / "VERSION"))
+    os.environ.get("THEORYVAULT_VERSION_RESOURCE", str(project_root / "VERSION"))
 ).resolve()
 if not version_resource.is_file():
     raise FileNotFoundError(f"Version resource not found: {version_resource}")
@@ -90,14 +90,14 @@ executable = EXE(
     analysis.scripts,
     [],
     exclude_binaries=True,
-    name="Chess Repertoire Memorizer",
+    name="TheoryVault",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=os.environ.get("CRM_BUILD_CONSOLE") == "1",
+    console=os.environ.get("THEORYVAULT_BUILD_CONSOLE") == "1",
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -113,5 +113,5 @@ distribution = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="Chess Repertoire Memorizer",
+    name="TheoryVault",
 )

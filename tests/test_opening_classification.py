@@ -2,12 +2,12 @@ import unittest
 
 import chess
 
-from app import ChessMvpApp
+from app import TheoryVaultApp
 
 
 class OpeningClassificationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.app = ChessMvpApp.__new__(ChessMvpApp)
+        self.app = TheoryVaultApp.__new__(TheoryVaultApp)
 
     def test_sicilian_mcdonnell_attack(self) -> None:
         classification = self.app.classify_opening({"pgn": "1. e4 c5 2. f4 *"})
@@ -20,6 +20,19 @@ class OpeningClassificationTests(unittest.TestCase):
                 "variation": "McDonnell Attack",
                 "subvariation": "",
             },
+        )
+
+    def test_quiz_title_classifies_position_before_expected_reply(self) -> None:
+        classification = self.app.classify_quiz_position({"pgn": "1. e4 c5 2. f4 *"})
+
+        self.assertEqual(
+            {
+                "eco": "B20",
+                "opening": "Sicilian Defense",
+                "variation": "",
+                "subvariation": "",
+            },
+            classification,
         )
 
     def test_sicilian_eco_codes_distinguish_old_and_closed_systems(self) -> None:

@@ -13,8 +13,20 @@ import chess
 import chess.pgn
 
 
-QUIZ_MARK = "[%crm_quiz 1]"
-QUIZ_MARK_RE = re.compile(r"(?:\s*\[%crm_quiz\s+1\]\s*)")
+QUIZ_MARK = "[%TheoryVault_quiz 1]"
+SIDELINED_MARK = "[%TheoryVault_sidelined 1]"
+
+
+def is_sidelined(node: chess.pgn.GameNode) -> bool:
+    return SIDELINED_MARK in node.comment
+
+
+def set_sidelined(node: chess.pgn.GameNode, value: bool) -> None:
+    node.comment = node.comment.replace(SIDELINED_MARK, "").strip()
+    if value:
+        node.comment = f"{node.comment} {SIDELINED_MARK}".strip()
+# Read older repertoires without losing their explicitly selected training moves.
+QUIZ_MARK_RE = re.compile(r"(?:\s*\[%(?:TheoryVault|crm)_quiz\s+1\]\s*)")
 
 
 @dataclass(frozen=True)
@@ -111,7 +123,7 @@ def trained_answer_choices(games: list[chess.pgn.Game]) -> dict[str, str]:
     def collect(node: chess.pgn.GameNode, board: chess.Board) -> None:
         key = position_key(board)
         for child in node.variations:
-            if is_quiz_node(child):
+            if is_quiz_node(child) and not is_sidelined(child):
                 selected[key] = child.move.uci()
             next_board = board.copy(stack=False)
             next_board.push(child.move)
@@ -127,9 +139,20 @@ def enforce_single_answers(
     preferred: dict[str, str] | None = None,
 ) -> int:
     """Keep one trained move per normalized position; the latest move wins."""
+    protected = {
+        (position_key(node.board()), child.move.uci())
+        for game in games for node in _walk_nodes(game) for child in node.variations
+        if is_quiz_node(child) and is_sidelined(child)
+    }
+    if protected:
+        for game in games:
+            for node in _walk_nodes(game):
+                for child in node.variations:
+                    if is_quiz_node(child) and (position_key(node.board()), child.move.uci()) in protected:
+                        set_sidelined(child, True)
     selected = trained_answer_choices(games)
     if preferred:
-        selected.update(preferred)
+        selected.update({key: move for key, move in preferred.items() if (key, move) not in protected})
 
     removed = 0
 
@@ -138,7 +161,7 @@ def enforce_single_answers(
         key = position_key(board)
         chosen_move = selected.get(key)
         for child in node.variations:
-            if is_quiz_node(child) and child.move.uci() != chosen_move:
+            if is_quiz_node(child) and not is_sidelined(child) and child.move.uci() != chosen_move:
                 unmark_quiz_node(child)
                 removed += 1
             next_board = board.copy(stack=False)
@@ -170,14 +193,14 @@ def _color_header(color: bool | None) -> str:
 def _headers(name: str, color: bool | None) -> dict[str, str]:
     return {
         "Event": name,
-        "Site": "Chess Repertoire Memorizer",
+        "Site": "TheoryVault",
         "Date": datetime.now().strftime("%Y.%m.%d"),
         "Round": "-",
         "White": "?",
         "Black": "?",
         "Result": "*",
         "RepertoireColor": _color_header(color),
-        "CRMVersion": "1",
+        "TheoryVaultVersion": "1",
     }
 
 
@@ -237,6 +260,17 @@ class RepertoireStore:
 
     def _atomic_write(self, path: Path, games: list[chess.pgn.Game]) -> None:
         enforce_single_answers(games)
+        for game in games:
+            if game.headers.get("Site") == "Chess Repertoire Memorizer":
+                game.headers["Site"] = "TheoryVault"
+            legacy_version = game.headers.pop("CRMVersion", None)
+            if legacy_version is not None:
+                game.headers.setdefault("TheoryVaultVersion", legacy_version)
+            nodes = [game]
+            while nodes:
+                node = nodes.pop()
+                node.comment = re.sub(r"\[%crm_quiz\s+1\]", QUIZ_MARK, node.comment)
+                nodes.extend(node.variations)
         self.directory.mkdir(parents=True, exist_ok=True)
         handle, temp_name = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".tmp", dir=self.directory)
         try:
@@ -310,15 +344,26 @@ class RepertoireStore:
             child = next((variation for variation in node.variations if variation.move == move), None)
             node = child if child is not None else node.add_variation(move)
         already_marked = is_quiz_node(node)
+        sidelined = is_sidelined(node)
+        ancestor = node.parent
+        while ancestor is not None:
+            sidelined = sidelined or is_sidelined(ancestor)
+            ancestor = ancestor.parent
+        # New theory beneath an explicitly sidelined move stays sidelined.
+        # Existing active answers are never demoted by an ordinary save.
+        if not already_marked and sidelined:
+            set_sidelined(node, True)
         mark_quiz_node(node)
         target_board = chess.Board()
         for move in moves[:-1]:
             target_board.push(move)
         replaced = enforce_single_answers(
             games,
-            {position_key(target_board): moves[-1].uci()},
+            {} if is_sidelined(node) else {position_key(target_board): moves[-1].uci()},
         )
         self._atomic_write(info.path, games)
+        if is_sidelined(node):
+            return "sidelined"
         if replaced:
             return "replaced"
         return "duplicate" if already_marked else "added"
@@ -332,17 +377,20 @@ class RepertoireStore:
             self._atomic_write(info.path, games)
         return removed
 
-    def compile(self, info: RepertoireInfo) -> list[dict]:
-        grouped: dict[str, dict] = {}
+    def compile(self, info: RepertoireInfo, include_sidelined: bool = False) -> list[dict]:
+        grouped: dict[tuple[str, str], dict] = {}
         for game_index, game in enumerate(self.read_games(info)):
             root_board = game.board()
 
             def visit(node: chess.pgn.GameNode, board: chess.Board, moves: list[chess.Move]) -> None:
                 key = position_key(board)
-                marked_children = [child for child in node.variations if is_quiz_node(child)]
-                if marked_children:
+                marked_children = [child for child in node.variations if is_quiz_node(child)
+                                   and (include_sidelined or not is_sidelined(child))]
+                for selected_child in marked_children:
+                    sidelined = is_sidelined(selected_child)
+                    group_key = (key, selected_child.move.uci() if sidelined else "active")
                     prompt = grouped.setdefault(
-                        key,
+                        group_key,
                         {
                             "prompt_id": f"{info.id}:{key}",
                             "repertoire_id": info.id,
@@ -354,6 +402,7 @@ class RepertoireStore:
                             "file": info.path.name,
                             "path": str(info.path),
                             "position_key": key,
+                            "sidelined": sidelined,
                             "before_fen": board.fen(en_passant="legal"),
                             "answers": {},
                             "contexts": [],
@@ -362,7 +411,7 @@ class RepertoireStore:
                     context = _line_pgn(moves, root_board)
                     if context not in prompt["contexts"]:
                         prompt["contexts"].append(context)
-                    for child in marked_children:
+                    for child in [selected_child]:
                         after = board.copy(stack=False)
                         san = after.san(child.move)
                         after.push(child.move)
@@ -398,11 +447,40 @@ class RepertoireStore:
             prompts.append(prompt)
         return prompts
 
-    def compile_all(self) -> list[dict]:
+    def compile_all(self, include_sidelined: bool = False) -> list[dict]:
         prompts: list[dict] = []
         for info in self.list_repertoires():
-            prompts.extend(self.compile(info))
+            prompts.extend(self.compile(info, include_sidelined=include_sidelined))
         return prompts
+
+    def set_answers_sidelined(
+        self, info: RepertoireInfo, choices: list[tuple[str, str]], sidelined: bool,
+        replace_conflicts: bool = False,
+    ) -> int:
+        """Explicitly change saved answers, preserving notes and training marks."""
+        games = self.read_games(info)
+        wanted = set(choices)
+        preferred: dict[str, str] = {}
+        if not sidelined:
+            active = trained_answer_choices(games)
+            for key, move in choices:
+                if key in preferred and preferred[key] != move:
+                    raise ValueError("Reactivate these replies individually: multiple choices share a position.")
+                preferred[key] = move
+                if key in active and active[key] != move and not replace_conflicts:
+                    raise ValueError("Reactivation conflicts with a current active reply.")
+        changed = 0
+        for game in games:
+            for node in _walk_nodes(game):
+                for child in node.variations:
+                    if (position_key(node.board()), child.move.uci()) in wanted and is_quiz_node(child):
+                        if is_sidelined(child) != sidelined:
+                            set_sidelined(child, sidelined)
+                            changed += 1
+        if changed:
+            enforce_single_answers(games, preferred)
+            self._atomic_write(info.path, games)
+        return changed
 
     def remove_answer(self, info: RepertoireInfo, key: str, move_uci: str) -> int:
         games = self.read_games(info)
@@ -414,6 +492,7 @@ class RepertoireStore:
                     for child in node.variations:
                         if child.move.uci() == move_uci and is_quiz_node(child):
                             unmark_quiz_node(child)
+                            set_sidelined(child, False)
                             removed += 1
                 for child in node.variations:
                     next_board = board.copy(stack=False)
@@ -447,13 +526,16 @@ class RepertoireStore:
 
         games = self.read_games(info)
         removed = 0
+        was_sidelined = False
         for game in games:
             def visit(node: chess.pgn.GameNode, position: chess.Board) -> None:
-                nonlocal removed
+                nonlocal removed, was_sidelined
                 if position_key(position) == key:
                     for child in node.variations:
                         if child.move.uci() == old_move_uci and is_quiz_node(child):
+                            was_sidelined = was_sidelined or is_sidelined(child)
                             unmark_quiz_node(child)
+                            set_sidelined(child, False)
                             removed += 1
                 for child in node.variations:
                     next_position = position.copy(stack=False)
@@ -475,13 +557,21 @@ class RepertoireStore:
         for move in moves:
             child = next((variation for variation in node.variations if variation.move == move), None)
             node = child if child is not None else node.add_variation(move)
+        target_position = position_key(node.parent.board())
+        if was_sidelined and any(
+            card["position_key"] == target_position and card["move_uci"] == node.move.uci()
+            for card in self.compile(info)
+        ):
+            raise ValueError("That reply is already active. Edit to a different move or reactivate the saved reply.")
         mark_quiz_node(node)
+        if was_sidelined or is_sidelined(node):
+            set_sidelined(node, True)
         target_board = chess.Board()
         for move in moves[:-1]:
             target_board.push(move)
         enforce_single_answers(
             games,
-            {position_key(target_board): moves[-1].uci()},
+            {} if is_sidelined(node) else {position_key(target_board): moves[-1].uci()},
         )
         self._atomic_write(info.path, games)
         return removed
@@ -509,7 +599,7 @@ class RepertoireStore:
             prompts = _compile_games_for_preview(merged, temp_info)
         else:
             prompts = []
-        if games and not prompts and not errors:
+        if games and not prompts and not errors and not has_marks:
             errors.append("The PGN contains no trainable moves for the selected side")
         return {
             "games": merged,
@@ -554,7 +644,7 @@ def _walk_nodes(root: chess.pgn.GameNode):
 
 
 def _compile_games_for_preview(games: list[chess.pgn.Game], info: RepertoireInfo) -> list[dict]:
-    directory = Path(tempfile.mkdtemp(prefix="crm-preview-"))
+    directory = Path(tempfile.mkdtemp(prefix="TheoryVault-preview-"))
     try:
         store = RepertoireStore(directory)
         path = directory / "preview.pgn"

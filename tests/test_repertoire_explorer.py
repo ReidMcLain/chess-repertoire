@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import chess
 import chess.pgn
 
-from app import ChessMvpApp
+from app import TheoryVaultApp
 
 
 def board_after(pgn: str) -> chess.Board:
@@ -43,7 +43,7 @@ def saved_move_card(pgn: str) -> dict:
 
 class RepertoireExplorerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.app = ChessMvpApp.__new__(ChessMvpApp)
+        self.app = TheoryVaultApp.__new__(TheoryVaultApp)
 
     def test_position_keeps_exact_reply_and_every_later_continuation(self) -> None:
         exact_reply = continuation_card("Nf3", "1. e4 c5 *")

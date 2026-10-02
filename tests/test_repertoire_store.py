@@ -4,7 +4,7 @@ from pathlib import Path
 
 import chess
 
-from repertoire_store import QUIZ_MARK, RepertoireStore, parse_pgn
+from repertoire_store import QUIZ_MARK, RepertoireStore, is_quiz_node, parse_pgn, unmark_quiz_node
 
 
 class RepertoireStoreTests(unittest.TestCase):
@@ -81,7 +81,7 @@ class RepertoireStoreTests(unittest.TestCase):
         info = self.store.import_preview(preview, "Imported", chess.WHITE, "new")
         self.assertEqual(2, len(self.store.compile(info)))
 
-    def test_import_with_crm_marks_does_not_mark_other_moves(self) -> None:
+    def test_import_with_theoryvault_marks_does_not_mark_other_moves(self) -> None:
         text = f"[Event \"Imported\"]\n\n1. e4 {{ {QUIZ_MARK} }} e5 2. Nf3 *\n"
 
         preview = self.store.preview_import(text, chess.WHITE)
@@ -89,6 +89,33 @@ class RepertoireStoreTests(unittest.TestCase):
         self.assertTrue(preview["used_existing_marks"])
         self.assertEqual(1, preview["prompt_count"])
         self.assertEqual(1, preview["answer_count"])
+
+    def test_legacy_marked_import_preserves_selection_and_saves_theoryvault_metadata(self) -> None:
+        text = (
+            '[Event "Legacy"]\n[Site "Chess Repertoire Memorizer"]\n[CRMVersion "1"]\n\n'
+            '1. e4 {Remember this [%crm_quiz 1]} e5 2. Nf3 *\n'
+        )
+        preview = self.store.preview_import(text, chess.WHITE)
+        self.assertTrue(preview["used_existing_marks"])
+        self.assertEqual(1, preview["prompt_count"])
+        info = self.store.import_preview(preview, "Imported", chess.WHITE, "new")
+        saved = info.path.read_text(encoding="utf-8")
+        self.assertIn('[Site "TheoryVault"]', saved)
+        self.assertIn('[TheoryVaultVersion "1"]', saved)
+        self.assertIn(QUIZ_MARK, saved)
+        self.assertIn("Remember this", saved)
+        self.assertNotIn("crm_quiz", saved)
+        self.assertNotIn("CRMVersion", saved)
+        self.assertEqual(["e2e4"], [card["move_uci"] for card in self.store.compile(info)])
+
+    def test_legacy_and_current_marks_can_both_be_removed(self) -> None:
+        games, errors = parse_pgn('1. e4 {Note [%crm_quiz 1] [%TheoryVault_quiz 1]} *')
+        self.assertFalse(errors)
+        node = games[0].variations[0]
+        self.assertTrue(is_quiz_node(node))
+        unmark_quiz_node(node)
+        self.assertFalse(is_quiz_node(node))
+        self.assertEqual("Note", node.comment)
 
     def test_import_keeps_only_the_latest_marked_reply_per_position(self) -> None:
         text = (

@@ -6,6 +6,7 @@ from pathlib import Path
 REQUIRED_RESOURCES = {
     "VERSION",
     "assets/check_success.json",
+    "assets/theoryvault-logo.png",
     "data/openings/COPYING-lichess-chess-openings.txt",
     "data/openings/README.md",
     "data/openings/metadata.json",
@@ -30,7 +31,7 @@ FORBIDDEN_FRAGMENTS = {
 def validate_distribution(distribution: Path) -> list[str]:
     if not distribution.is_dir():
         return [f"Distribution directory does not exist: {distribution}"]
-    executable = distribution / "Chess Repertoire Memorizer.exe"
+    executable = distribution / "TheoryVault.exe"
     resource_root = distribution / "_internal"
     if not resource_root.is_dir():
         resource_root = distribution

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
 
-APPLICATION_DATA_DIRECTORY_NAME = "ChessRepertoireMemorizer"
+APPLICATION_DATA_DIRECTORY_NAME = "TheoryVault"
+LEGACY_APPLICATION_DATA_DIRECTORY_NAME = "ChessRepertoireMemorizer"
 SOURCE_DIRECTORY = Path(__file__).resolve().parent
 
 
@@ -64,6 +67,16 @@ def user_data_directory(
         local_app_data = environment.get("LOCALAPPDATA")
         base = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
         directory = base / APPLICATION_DATA_DIRECTORY_NAME
+        legacy = base / LEGACY_APPLICATION_DATA_DIRECTORY_NAME
+        if not directory.exists() and legacy.is_dir():
+            # Publish a complete copy only after migration succeeds. Leave the old
+            # installation's files intact, and never overwrite existing vault data.
+            with tempfile.TemporaryDirectory(prefix=".TheoryVault-migration-", dir=base) as temporary:
+                staging = Path(temporary) / APPLICATION_DATA_DIRECTORY_NAME
+                staging.resolve().relative_to(base.resolve())
+                directory.resolve().relative_to(base.resolve())
+                shutil.copytree(legacy, staging)
+                staging.rename(directory)
     else:
         directory = Path(source_directory) if source_directory is not None else SOURCE_DIRECTORY
     directory.mkdir(parents=True, exist_ok=True)
