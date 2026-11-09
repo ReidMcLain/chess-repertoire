@@ -1,6 +1,7 @@
 ﻿import tkinter as tk
 import io
 import sys
+from functools import lru_cache
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -10,8 +11,11 @@ from PIL import Image, ImageTk
 
 from app_paths import repertoire_directory, resource_directory, resource_path
 from opening_classifier import OPENING_CLASSIFIER
+from opening_overrides import classify_repertoire, uses_reidmate_rules
 from quiz_history import QuizHistory
+from quiz_selections import QuizSelections
 from repertoire_store import RepertoireInfo, RepertoireStore, position_key
+from repertoire_tree import MoveFolder, move_folders
 
 
 SQUARE_SIZE = 72
@@ -59,7 +63,6 @@ class TheoryVaultApp:
         self.editing_card: dict | None = None
         self.edit_dirty = False
         self.repertoire_expanded_sections: set[tuple[str, ...]] = set()
-        self.repertoire_grouping = "parents"
         self.repertoire_scroll_fraction = 0.0
         self.repertoire_scroll_canvas: tk.Canvas | None = None
         self.quiz_cards: list[dict] = []
@@ -374,12 +377,12 @@ class TheoryVaultApp:
         return 7 - file_index, rank
 
     def current_orientation(self) -> bool:
-        if self.mode in {"quiz", "recognition_quiz"}:
+        if self.mode == "quiz":
             return self.orientation_turn if self.orientation_turn is not None else self.board.turn
         return self.manual_orientation
 
     def flip_board(self) -> None:
-        if self.mode in {"quiz", "recognition_quiz"}:
+        if self.mode == "quiz":
             self.orientation_turn = not self.current_orientation()
         else:
             self.manual_orientation = not self.manual_orientation
@@ -391,7 +394,7 @@ class TheoryVaultApp:
         self.draw_board()
 
     def on_mouse_down(self, event: tk.Event) -> None:
-        if self.mode in {"quiz", "recognition_quiz"} and not self.quiz_input_enabled:
+        if self.mode == "quiz" and not self.quiz_input_enabled:
             return
         clicked_square = self.event_to_square(event)
         if clicked_square is None:
@@ -440,9 +443,9 @@ class TheoryVaultApp:
         self.drag_item = self.canvas.create_text(x, y, text=symbol, font=("Segoe UI", 36, "bold"))
 
     def try_move(self, from_square: chess.Square, to_square: chess.Square) -> None:
-        if self.mode not in {"play", "edit", "quiz", "recognition_quiz"}:
+        if self.mode not in {"play", "edit", "quiz"}:
             return
-        if self.mode in {"quiz", "recognition_quiz"} and not self.quiz_input_enabled:
+        if self.mode == "quiz" and not self.quiz_input_enabled:
             return
 
         move = self.normalize_user_move(from_square, to_square)
@@ -456,8 +459,6 @@ class TheoryVaultApp:
 
         if self.mode == "quiz":
             self.handle_quiz_move(move)
-            return
-        if self.mode == "recognition_quiz":
             return
 
         if self.move_cursor < len(self.move_history):
@@ -869,7 +870,7 @@ class TheoryVaultApp:
         if outcome == "replaced":
             self.status.set(f"Replaced the previous reply with {card['move_san']} in {info.name}")
         elif outcome == "sidelined":
-            self.status.set(f"Saved {card['move_san']} as sidelined in {info.name}; use Reactivate to train it")
+            self.status.set(f"Saved {card['move_san']} as sidelined in {info.name}")
             return
         elif outcome == "added":
             self.status.set(f"Saved {card['move_san']} in {info.name}")
@@ -924,30 +925,17 @@ class TheoryVaultApp:
         self.update_pgn()
 
     def card_key(self, card: dict) -> str:
-        """Return a stable local key for either supported quiz-card schema.
-
-        Theory prompts are keyed by the repertoire position before the trained
-        move.  Opening Recognition prompts carry a catalog prompt_id and a
-        final-position ``fen`` instead.  Do not use ``dict.get`` with a
-        fallback expression here: Python evaluates that expression before
-        calling ``get``, which would incorrectly require ``before_fen`` on a
-        recognition card.
-        """
+        """Return the saved prompt identity, or its repertoire/position fallback."""
         prompt_id = card.get("prompt_id")
         if prompt_id:
             return str(prompt_id)
-
-        position_fen = card.get("before_fen") or card.get("fen")
-        if position_fen:
-            namespace = card.get("repertoire_id") or card.get("quiz_kind") or "unknown"
-            return f"{namespace}:{position_fen}"
-
-        # This should only be reached for an incomplete in-memory card, but
-        # remains deterministic enough for UI attempt tracking and avoids
-        # conflating different recognition answers.
-        return f"{card.get('quiz_kind', 'unknown')}:{card.get('recognition_level', '')}:{card.get('answer', '')}"
+        return f"{card.get('repertoire_id', 'unknown')}:{card.get('before_fen', '')}"
 
     def classify_opening(self, card: dict[str, str]) -> dict[str, str]:
+        moves = self.pgn_uci_moves(card.get("pgn", ""))
+        match = classify_repertoire(moves, card.get("repertoire_id"), card.get("repertoire_color"))
+        if match.source == "reidmate_override":
+            return match.opening_fields()
         fields = ("eco", "opening", "variation", "subvariation")
         stored = {key: card.get(key, "") for key in fields}
         if stored["opening"]:
@@ -962,14 +950,20 @@ class TheoryVaultApp:
         # A quiz card's final PGN move is the answer.  Its board is shown
         # before that move, so including it here would reveal a later opening
         # branch in the title.
-        return OPENING_CLASSIFIER.classify(moves[:-1]).opening_fields()
+        return classify_repertoire(moves[:-1], card.get("repertoire_id"), card.get("repertoire_color")).opening_fields()
 
     def pgn_uci_moves(self, pgn: str) -> list[str]:
+        # Return a copy so callers cannot mutate the shared cached sequence.
+        return list(self._cached_pgn_uci_moves(pgn))
+
+    @staticmethod
+    @lru_cache(maxsize=4096)
+    def _cached_pgn_uci_moves(pgn: str) -> tuple[str, ...]:
         try:
             game = chess.pgn.read_game(io.StringIO(pgn))
-            return [move.uci() for move in game.mainline_moves()] if game else []
+            return tuple(move.uci() for move in game.mainline_moves()) if game else ()
         except (ValueError, IndexError):
-            return []
+            return ()
 
     def card_ply(self, card: dict) -> int:
         """Return the one-based ply of a card's trained move in its PGN line."""
@@ -1075,8 +1069,30 @@ class TheoryVaultApp:
                 for card in cards
             ]
         family_paths: list[tuple[str, ...]] = []
+        rule_matches = [
+            classify_repertoire(path, card.get("repertoire_id"), card.get("repertoire_color"))
+            for card, path in zip(cards, move_paths)
+        ]
         for index, card in enumerate(cards):
             scope = (card.get("repertoire_id"), card.get("repertoire_color"))
+            match = rule_matches[index]
+            if match.source == "reidmate_override":
+                family_paths.append(tuple(value for value in
+                                          (match.opening, match.variation, match.subvariation) if value))
+                continue
+            custom_scope = uses_reidmate_rules(scope[0])
+            if custom_scope and any(
+                other_index != index
+                and (other.get("repertoire_id"), other.get("repertoire_color")) == scope
+                and rule_matches[other_index].source == "reidmate_override"
+                and len(move_paths[index]) < len(move_paths[other_index])
+                and move_paths[other_index][:len(move_paths[index])] == move_paths[index]
+                for other_index, other in enumerate(cards)
+            ):
+                # Lead-ins do not create competing catalog roots above the
+                # user's rules; each drill starts after its opening is defined.
+                family_paths.append(())
+                continue
             ancestors = [
                 other_index
                 for other_index, other in enumerate(cards)
@@ -1093,8 +1109,25 @@ class TheoryVaultApp:
                 for label in self.opening_path(cards[relative_index]):
                     if label not in lineage:
                         lineage.append(label)
-            family_paths.append(tuple(lineage))
+            family_paths.append(tuple(["Other saved lines", *lineage] if custom_scope else lineage))
         return family_paths
+
+    @lru_cache(maxsize=8192)
+    def study_branch_start(self, moves: tuple[str, ...], repertoire_id: str,
+                           color: bool | None, study_path: tuple[str, ...]) -> int | None:
+        """First ply where the selected opening is already on the board."""
+        labels = study_path[1:] if study_path[:1] == ("Other saved lines",) else study_path
+        if not labels:
+            return 0
+        lineage = []
+        for ply in range(1, len(moves) + 1):
+            match = classify_repertoire(moves[:ply], repertoire_id, color)
+            for label in (match.opening, match.variation, match.subvariation):
+                if label and label not in lineage:
+                    lineage.append(label)
+            if self.path_contains_labels(tuple(lineage), labels):
+                return ply
+        return None
 
     def study_cards_for_path(
         self,
@@ -1105,7 +1138,7 @@ class TheoryVaultApp:
         family_paths: list[tuple[str, ...]] | None = None,
         move_paths: list[tuple[str, ...]] | None = None,
     ) -> list[dict]:
-        """Return the sequential ancestor/descendant moves for a family branch."""
+        """Quiz only replies after the selected opening has been reached."""
         if move_paths is None:
             move_paths = [
                 tuple(self.pgn_uci_moves(card.get("pgn", "")))
@@ -1132,18 +1165,10 @@ class TheoryVaultApp:
         return [
             card
             for index, card in enumerate(cards)
-            if card["repertoire_id"] == repertoire_id
-            and (repertoire_color is None or card["repertoire_color"] == repertoire_color)
-            and (
-                index in target_indexes
-                or any(
-                    index in eligible_indexes
-                    and
-                    len(move_paths[index]) < len(move_paths[target_index])
-                    and move_paths[target_index][: len(move_paths[index])] == move_paths[index]
-                    for target_index in target_indexes
-                )
-            )
+            if index in target_indexes
+            and (start := self.study_branch_start(move_paths[index], repertoire_id,
+                                                  card.get("repertoire_color"), study_path)) is not None
+            and start < len(move_paths[index])
         ]
 
     def study_cards_for_nodes(
@@ -1194,7 +1219,7 @@ class TheoryVaultApp:
             return sum(scores.get(key, 0.5) for key in sorted(keys)) / len(keys) if keys else 0.5
 
         # Stable ties preserve the original family order. Sort before the existing
-        # shared-position deduplication so lead-ins belong to the first family.
+        # shared-position deduplication so shared prompts belong to the first family.
         return [node for family in sorted(families, key=family_score) for node in families[family]]
 
     def prepare_quiz_cards(self, cards: list[dict]) -> list[dict]:
@@ -1238,12 +1263,18 @@ class TheoryVaultApp:
     def show_quiz_title_card(self, card: dict) -> None:
         classification = self.classify_quiz_position(card)
         title = self.specific_opening_title(classification)
+        ancestry = self.opening_title_ancestry(classification)
+        match = classify_repertoire(self.pgn_uci_moves(card.get("pgn", ""))[:-1],
+                                    card.get("repertoire_id"), card.get("repertoire_color"))
+        if match.source == "reidmate_override":
+            title = match.opening
+            ancestry = "  ›  ".join(value for value in (match.variation, match.subvariation) if value)
         side = "WHITE" if card.get("repertoire_color") else "BLACK"
         context = self.quiz_context_label(card)
         eco = classification["eco"] or "—"
         self.quiz_title_kicker.configure(text=f"♞  {side} REPERTOIRE  •  ECO {eco}  •  {context.upper()}")
         self.quiz_title_name.configure(text=title)
-        self.quiz_title_branch.configure(text=self.opening_title_ancestry(classification))
+        self.quiz_title_branch.configure(text=ancestry)
         self.quiz_title_progress.configure(
             text=(
                 f"TREE {card.get('_study_block_index', 1)} / {card.get('_study_block_count', 1)}\n"
@@ -1284,6 +1315,9 @@ class TheoryVaultApp:
 
     def visible_opening(self) -> dict[str, str]:
         moves = [entry["move_uci"] for entry in self.move_history[: self.move_cursor]]
+        card = getattr(self, "active_line_card", None)
+        if card:
+            return classify_repertoire(moves, card.get("repertoire_id"), card.get("repertoire_color")).opening_fields()
         return OPENING_CLASSIFIER.classify(moves).opening_fields()
 
     def show_live_opening_title_card(self) -> None:
@@ -1310,26 +1344,6 @@ class TheoryVaultApp:
         for card in cards:
             label = self.classify_opening(card)[field] or "Main line"
             groups.setdefault(label, []).append(card)
-        return groups
-
-    def child_classification_groups(
-        self,
-        cards: list[dict[str, str]],
-    ) -> dict[tuple[str, ...], list[dict[str, str]]]:
-        """Group cards by the deepest named opening class available to each one."""
-        groups: dict[tuple[str, ...], list[dict[str, str]]] = {}
-        for card in cards:
-            classification = self.classify_opening(card)
-            path = tuple(
-                value
-                for value in (
-                    classification["opening"],
-                    classification["variation"],
-                    classification["subvariation"],
-                )
-                if value
-            ) or ("Unclassified position",)
-            groups.setdefault(path, []).append(card)
         return groups
 
     def eco_descriptor(self, cards: list[dict[str, str]]) -> str:
@@ -1554,47 +1568,11 @@ class TheoryVaultApp:
             self.quiz_dialog.focus_force()
             return
 
-        self.show_quiz_type_selector(cards)
-
-    def show_quiz_type_selector(self, cards: list[dict]) -> None:
-        """Choose between repertoire move recall and catalog recognition."""
-        dialog = tk.Toplevel(self.root)
-        self.quiz_dialog = dialog
-        dialog.title("Choose Quiz")
-        dialog.configure(bg=PANEL)
-        dialog.transient(self.root)
-        dialog.resizable(False, False)
-        shell = ttk.Frame(dialog, style="Panel.TFrame", padding=18)
-        shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text="Choose Quiz", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            shell,
-            text="Practice your saved repertoire moves or recognize positions from the bundled ECO catalog.",
-            style="TLabel", foreground=MUTED, wraplength=410,
-        ).pack(anchor="w", pady=(5, 14))
-
-        def close() -> None:
-            self.quiz_dialog = None
-            dialog.destroy()
-
-        def theory() -> None:
-            close()
-            if not cards:
-                self.status.set("No saved repertoire moves yet")
-                self.show_text("No repertoire saved yet.\n\nPlay a move, then click Add move.")
-                return
-            self.show_quiz_selector(cards)
-
-        def recognition() -> None:
-            close()
-            self.show_opening_recognition_selector()
-
-        ttk.Button(shell, text=f"Theory — saved repertoire moves ({len(cards)})", command=theory).pack(fill="x", pady=(0, 8))
-        ttk.Button(shell, text="Opening Recognition — identify the position", style="Primary.TButton", command=recognition).pack(fill="x")
-        ttk.Button(shell, text="Cancel", command=close).pack(anchor="e", pady=(12, 0))
-        dialog.protocol("WM_DELETE_WINDOW", close)
-        dialog.grab_set()
-        dialog.focus_force()
+        if not cards:
+            self.status.set("No saved repertoire moves yet")
+            self.show_text("No repertoire saved yet.\n\nPlay a move, then click Add move.")
+            return
+        self.show_quiz_selector(cards)
 
     def show_quiz_selector(self, cards: list[dict]) -> None:
         move_paths = [
@@ -1635,7 +1613,6 @@ class TheoryVaultApp:
         ]
         maximum_ply = max((self.card_ply(card) for card in eligible_cards), default=1)
         ply_limit_var = tk.StringVar(value=str(maximum_ply))
-        theory_refresher_var = tk.BooleanVar(value=False)
 
         dialog = tk.Toplevel(self.root)
         self.quiz_dialog = dialog
@@ -1650,9 +1627,9 @@ class TheoryVaultApp:
         ttk.Label(
             shell,
             text=(
-                "Parent families start collapsed. Expand one to follow the actual saved "
-                "move sequence across ECO and opening-name changes; selecting a parent "
-                "includes every continuation below it."
+                "Reid's repertoire is grouped by your named rules. Other saved lines "
+                "remain available separately. Expand a rule to choose a continuation. "
+                "The quiz starts at the selected opening position and asks only for moves after it."
             ),
             style="TLabel",
             foreground=MUTED,
@@ -1701,8 +1678,10 @@ class TheoryVaultApp:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        preferences = QuizSelections()
+        saved_choices = preferences.values_for(nodes)
         variables: dict[tuple[str, bool, tuple[str, ...]], tk.BooleanVar] = {
-            node: tk.BooleanVar(value=len(node[2]) == 1)
+            node: tk.BooleanVar(value=saved_choices[node])
             for node in nodes
         }
         checkbuttons: dict[tuple[str, bool, tuple[str, ...]], ttk.Checkbutton] = {}
@@ -1714,6 +1693,13 @@ class TheoryVaultApp:
         available_nodes: set[tuple[str, bool, tuple[str, ...]]] = set(nodes)
         limited_out_selections: set[tuple[str, bool, tuple[str, ...]]] = set()
         start_button = ttk.Button(shell, style="Primary.TButton")
+
+        def save_choices() -> None:
+            try:
+                preferences.save({node: variable.get() for node, variable in variables.items()},
+                                 limited_out_selections)
+            except OSError as exc:
+                self.status.set(f"Could not save quiz selections: {exc}")
 
         def current_ply_limit() -> int | None:
             try:
@@ -1750,11 +1736,7 @@ class TheoryVaultApp:
                 )
             )
             start_button.configure(
-                text=(
-                    f"Start Theory Refresher ({count} theory moves)"
-                    if theory_refresher_var.get()
-                    else f"Study Selected Trees ({count} moves)"
-                ),
+                text=f"Study Selected Trees ({count} moves)",
                 state="normal" if count else "disabled",
             )
 
@@ -1769,6 +1751,7 @@ class TheoryVaultApp:
                         variables[other].set(False)
                         limited_out_selections.discard(other)
             update_start_button()
+            save_choices()
 
         repertoire_sides = list(
             dict.fromkeys((card["repertoire_id"], card["repertoire_color"]) for card in cards)
@@ -1962,8 +1945,10 @@ class TheoryVaultApp:
                 if selected and is_root and node not in available_nodes:
                     limited_out_selections.add(node)
             update_start_button()
+            save_choices()
 
         def close_dialog() -> None:
+            save_choices()
             self.quiz_dialog = None
             dialog.destroy()
 
@@ -1982,21 +1967,6 @@ class TheoryVaultApp:
                 return
             self.quiz_round_summaries = []
             self.quiz_attempt_counts = {}
-            if theory_refresher_var.get():
-                recognition_cards = self.build_opening_recognition_cards(
-                    "all_variations",
-                    theory_cards=selected_cards,
-                )
-                if not recognition_cards:
-                    self.status.set("No named variations found in selected theory")
-                    self.show_text(
-                        "No named variations from the local opening catalog were found in the selected theory.",
-                        title="Theory Refresher",
-                    )
-                    return
-                close_dialog()
-                self.begin_opening_recognition(recognition_cards)
-                return
             self.quiz_source_cards = selected_cards[:]
             close_dialog()
             self.begin_quiz(selected_cards)
@@ -2005,20 +1975,6 @@ class TheoryVaultApp:
         selection_actions.pack(fill="x", pady=(12, 8))
         ttk.Button(selection_actions, text="Select all", command=lambda: set_all(True)).pack(side="left")
         ttk.Button(selection_actions, text="Clear all", command=lambda: set_all(False)).pack(side="left", padx=(8, 0))
-
-        ttk.Checkbutton(
-            shell,
-            text="Theory refresher — recognize Named Variations in selected theory",
-            variable=theory_refresher_var,
-            command=update_start_button,
-        ).pack(anchor="w", pady=(0, 3))
-        ttk.Label(
-            shell,
-            text="Off by default. Variations recorded for both White and Black are asked once from each Theory perspective.",
-            style="TLabel",
-            foreground=MUTED,
-            wraplength=440,
-        ).pack(anchor="w", pady=(0, 8))
 
         start_button.configure(command=launch_quiz)
         start_button.pack(fill="x", pady=(0, 8))
@@ -2038,13 +1994,6 @@ class TheoryVaultApp:
         dialog.focus_force()
 
     def restart_quiz(self) -> None:
-        if self.mode == "recognition_quiz" or (
-            self.quiz_source_cards and self.quiz_source_cards[0].get("quiz_kind") == "recognition"
-        ):
-            self.quiz_round_summaries = []
-            self.quiz_attempt_counts = {}
-            self.begin_opening_recognition(self.quiz_source_cards)
-            return
         cards = self.quiz_source_cards[:]
         if not cards:
             cards = self.load_repertoire()
@@ -2056,187 +2005,7 @@ class TheoryVaultApp:
 
     def replay_missed_moves(self) -> None:
         if self.last_missed_cards:
-            if self.last_missed_cards[0].get("quiz_kind") == "recognition":
-                self.begin_opening_recognition(self.last_missed_cards)
-            else:
-                self.begin_quiz(self.last_missed_cards)
-
-    def show_opening_recognition_selector(self) -> None:
-        dialog = tk.Toplevel(self.root)
-        self.quiz_dialog = dialog
-        dialog.title("Opening Recognition")
-        dialog.configure(bg=PANEL)
-        dialog.transient(self.root)
-        dialog.resizable(False, False)
-        shell = ttk.Frame(dialog, style="Panel.TFrame", padding=18)
-        shell.pack(fill="both", expand=True)
-        ttk.Label(shell, text="Opening Recognition", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            shell,
-            text="See a position and choose its name from five plausible answers. Missed positions can be replayed after the round.",
-            style="TLabel", foreground=MUTED, wraplength=430,
-        ).pack(anchor="w", pady=(5, 14))
-
-        def launch(level: str) -> None:
-            self.quiz_dialog = None
-            dialog.destroy()
-            self.quiz_round_summaries = []
-            self.quiz_attempt_counts = {}
-            cards = self.build_opening_recognition_cards(level)
-            self.begin_opening_recognition(cards)
-
-        ttk.Button(shell, text="Parent Families  ·  60 broad openings", style="Primary.TButton", command=lambda: launch("families")).pack(fill="x", pady=(0, 8))
-        ttk.Button(shell, text="Named Variations  ·  150 major variations", command=lambda: launch("variations")).pack(fill="x", pady=(0, 8))
-        ttk.Button(shell, text="Deep ECO  ·  coming soon (full local catalog)", state="disabled").pack(fill="x")
-        ttk.Button(shell, text="Cancel", command=lambda: (setattr(self, "quiz_dialog", None), dialog.destroy())).pack(anchor="e", pady=(12, 0))
-        dialog.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, "quiz_dialog", None), dialog.destroy()))
-        dialog.grab_set()
-        dialog.focus_force()
-
-    def build_opening_recognition_cards(
-        self,
-        level: str,
-        theory_cards: list[dict] | None = None,
-    ) -> list[dict]:
-        """Adapt catalog questions to the existing quiz-history card contract."""
-        questions = OPENING_CLASSIFIER.recognition_questions(level)
-        theory_sides: dict[str, set[bool]] = {}
-        if theory_cards is not None:
-            for theory_card in theory_cards:
-                classification = self.classify_opening(theory_card)
-                opening = classification.get("opening", "")
-                variation = classification.get("variation", "")
-                if not opening or not variation:
-                    continue
-                label = f"{opening}: {variation}"
-                side = theory_card.get("repertoire_color")
-                if side in {chess.WHITE, chess.BLACK}:
-                    theory_sides.setdefault(label, set()).add(side)
-        cards = []
-        for index, question in enumerate(questions):
-            sides = theory_sides.get(question["answer"], set()) if theory_cards is not None else {None}
-            for side in sorted(sides):
-                side_suffix = "" if side is None else f":theory-{'white' if side else 'black'}"
-                cards.append(
-                    {
-                        **question,
-                        "prompt_id": f"{question['prompt_id']}{side_suffix}",
-                        "options": OPENING_CLASSIFIER.recognition_options(questions, index),
-                        "quiz_kind": "recognition",
-                        "recognition_level": level,
-                        "theory_orientation": side,
-                    }
-                )
-        return cards
-
-    def begin_opening_recognition(self, cards: list[dict]) -> None:
-        self.mode = "recognition_quiz"
-        self.quiz_source_cards = cards[:]
-        self.quiz_cards = cards[:]
-        self.quiz_index = 0
-        self.quiz_score = 0
-        self.quiz_results = []
-        self.last_missed_cards = []
-        self.quiz_input_enabled = False
-        self.quiz_animation_serial += 1
-        self.update_quiz_counter()
-        self.clear_quiz_actions()
-        self.clear_feedback()
-        self.load_current_recognition_card()
-
-    def load_current_recognition_card(self) -> None:
-        if self.quiz_index >= len(self.quiz_cards):
-            total = len(self.quiz_cards)
-            self.last_missed_cards = [result["card"] for result in self.quiz_results if not result["correct"]]
-            self.quiz_round_summaries.append((self.quiz_score, total))
-            self.mode = "play"
-            self.manual_orientation = chess.WHITE
-            self.show_feedback("✓", f"Recognition complete: {self.quiz_score}/{total}", SUCCESS)
-            self.status.set(f"Recognition complete: {self.quiz_score}/{total}")
-            self.show_quiz_summary()
-            self.show_quiz_end_actions(has_misses=bool(self.last_missed_cards))
-            self.hide_quiz_title_card()
-            self.draw_board()
-            return
-
-        card = self.quiz_cards[self.quiz_index]
-        self.quiz_animation_serial += 1
-        animation_serial = self.quiz_animation_serial
-        self.board = chess.Board(card["before_fen"])
-        # Recognition is about seeing an opponent establish their system.
-        # Keep the board facing the side *opposite* the player making the
-        # defining move, including while that move is animated.
-        self.orientation_turn = card.get("theory_orientation")
-        if self.orientation_turn is None:
-            self.orientation_turn = not self.board.turn
-        self.selected_square = None
-        self.dragging_square = None
-        self.quiz_input_enabled = False
-        level_names = {
-            "families": "PARENT FAMILIES",
-            "variations": "NAMED VARIATIONS",
-            "all_variations": "THEORY VARIATIONS",
-            "deep_eco": "DEEP ECO",
-        }
-        self.quiz_title_kicker.configure(text=f"♞  OPENING RECOGNITION  •  {level_names[card['recognition_level']]}")
-        self.quiz_title_name.configure(text="Identify this opening")
-        self.quiz_title_branch.configure(text="Choose the best name for the position.")
-        self.quiz_title_progress.configure(text=f"{self.quiz_index + 1}\nOF {len(self.quiz_cards)}")
-        if not self.quiz_title_card.winfo_manager():
-            self.quiz_title_card.pack(fill="x", pady=(0, 8), before=self.canvas)
-        self.status.set(f"Opening Recognition — watch the defining move ({self.quiz_index + 1}/{len(self.quiz_cards)})")
-        self.draw_board()
-        self.show_recognition_move_preview()
-        self.animate_quiz_setup_move(
-            chess.Move.from_uci(card["defining_move_uci"]),
-            card["fen"],
-            animation_serial,
-        )
-
-    def show_recognition_move_preview(self) -> None:
-        self.right_title.configure(text="Opening Recognition")
-        self.clear_right_body()
-        ttk.Label(self.right_body, text="Watch the defining move", style="Title.TLabel").pack(anchor="w", pady=(0, 5))
-        ttk.Label(
-            self.right_body,
-            text="The choices will appear as soon as the move is played.",
-            style="TLabel",
-            foreground=MUTED,
-            wraplength=350,
-        ).pack(anchor="w")
-
-    def show_recognition_answers(self, card: dict) -> None:
-        self.right_title.configure(text="Opening Recognition")
-        self.clear_right_body()
-        ttk.Label(self.right_body, text="What opening is this?", style="Title.TLabel").pack(anchor="w", pady=(0, 5))
-        ttk.Label(self.right_body, text="Choose one answer.", style="TLabel", foreground=MUTED).pack(anchor="w", pady=(0, 12))
-        options = card["options"]
-        for number, option in enumerate(options, start=1):
-            ttk.Button(
-                self.right_body, text=f"{number}. {option}", command=lambda value=option: self.answer_opening_recognition(value)
-            ).pack(fill="x", pady=(0, 7))
-
-    def answer_opening_recognition(self, answer: str) -> None:
-        if self.mode != "recognition_quiz" or self.quiz_index >= len(self.quiz_cards):
-            return
-        card = self.quiz_cards[self.quiz_index]
-        correct = answer == card["answer"]
-        self.quiz_attempt_counts[self.card_key(card)] = self.quiz_attempt_counts.get(self.card_key(card), 0) + 1
-        if correct:
-            self.quiz_score += 1
-            self.show_feedback("✓", f"Correct: {answer}", SUCCESS)
-        else:
-            self.show_feedback("✕", f"Wrong. Correct answer: {card['answer']}", "#dc2626")
-        self.add_quiz_result(card, correct)
-        for child in self.right_body.winfo_children():
-            if isinstance(child, ttk.Button):
-                child.configure(state="disabled")
-        self.root.after(1000, self.advance_opening_recognition)
-
-    def advance_opening_recognition(self) -> None:
-        self.clear_feedback()
-        self.quiz_index += 1
-        self.load_current_recognition_card()
+            self.begin_quiz(self.last_missed_cards)
 
     def begin_quiz(self, cards: list[dict]) -> None:
         self.mode = "quiz"
@@ -2292,7 +2061,8 @@ class TheoryVaultApp:
         self.quiz_animation_serial += 1
         animation_serial = self.quiz_animation_serial
         self.orientation_turn = card.get("repertoire_color", chess.Board(card["before_fen"]).turn)
-        setup_transition = self.quiz_setup_transition(card)
+        setup_transition = (None if card.get("_study_position") == 1
+                            else self.quiz_setup_transition(card))
         self.board = chess.Board(setup_transition[0] if setup_transition else card["before_fen"])
         self.show_quiz_title_card(card)
         study_path = tuple(card["_study_path"]) if "_study_path" in card else self.opening_path(card)
@@ -2411,7 +2181,7 @@ class TheoryVaultApp:
         def animate(frame: int) -> None:
             if (
                 animation_serial != self.quiz_animation_serial
-                or self.mode not in {"quiz", "recognition_quiz"}
+                or self.mode != "quiz"
                 or self.quiz_index >= len(self.quiz_cards)
             ):
                 self.canvas.delete("quiz-moving-piece")
@@ -2421,14 +2191,6 @@ class TheoryVaultApp:
                 self.canvas.delete("quiz-moving-piece")
                 self.quiz_input_enabled = True
                 current = self.quiz_cards[self.quiz_index]
-                if self.mode == "recognition_quiz":
-                    self.quiz_input_enabled = False
-                    self.status.set(
-                        f"Opening Recognition — position {self.quiz_index + 1}/{len(self.quiz_cards)}"
-                    )
-                    self.show_recognition_answers(current)
-                    self.draw_board()
-                    return
                 study_path = tuple(current.get("_study_path", self.opening_path(current)))
                 self.status.set(
                     f"{' > '.join(study_path)} — your move "
@@ -2491,7 +2253,7 @@ class TheoryVaultApp:
             self.status.set(f"Correct: {san}")
             self.draw_board()
             self.animate_correct_move_square(move.to_square)
-            self.root.after(1000, self.advance_quiz)
+            self.root.after(500, self.advance_quiz)
             return
 
         orientation_before_move = self.board.turn
@@ -2503,7 +2265,7 @@ class TheoryVaultApp:
         self.status.set(f"You played {san}. Correct move: {card['move_san']}")
         self.draw_board()
         self.animate_incorrect_move_square(move.to_square)
-        self.root.after(1000, self.advance_quiz)
+        self.root.after(500, self.advance_quiz)
 
     def advance_quiz(self) -> None:
         self.clear_feedback()
@@ -2530,7 +2292,7 @@ class TheoryVaultApp:
             tags=("correct-move-square",),
         )
         self.canvas.tag_raise("piece")
-        self.run_scale_in_center(item, center_x, center_y, SQUARE_SIZE, duration_ms=500)
+        self.run_scale_in_center(item, center_x, center_y, SQUARE_SIZE, duration_ms=250)
 
     def animate_incorrect_move_square(self, square: chess.Square) -> None:
         display_file, display_rank = self.square_to_display(square)
@@ -2559,7 +2321,7 @@ class TheoryVaultApp:
             tags=("incorrect-move-square",),
         )
         self.canvas.tag_raise("incorrect-move-square")
-        self.run_x_scale_in_center(line_a, line_b, center_x, center_y, SQUARE_SIZE, duration_ms=500)
+        self.run_x_scale_in_center(line_a, line_b, center_x, center_y, SQUARE_SIZE, duration_ms=250)
 
     def run_scale_in_center(self, item: int, center_x: float, center_y: float, size: int, duration_ms: int) -> None:
         frame_ms = 16
@@ -2660,7 +2422,7 @@ class TheoryVaultApp:
         if has_misses:
             ttk.Button(
                 self.quiz_actions_frame,
-                text=("Only Replay Missed positions" if self.last_missed_cards and self.last_missed_cards[0].get("quiz_kind") == "recognition" else "Only Replay Missed moves"),
+                text="Only Replay Missed moves",
                 command=self.replay_missed_moves,
             ).pack(side="left")
 
@@ -2676,11 +2438,10 @@ class TheoryVaultApp:
         for index, (score, round_total) in enumerate(self.quiz_round_summaries, start=1):
             lines.append(f"{index}. {score}/{round_total}")
 
-        recognition = bool(self.quiz_cards and self.quiz_cards[0].get("quiz_kind") == "recognition")
-        lines.extend(["", "Attempts per position:" if recognition else "Attempts per move:"])
+        lines.extend(["", "Attempts per move:"])
         for card in self.quiz_cards:
             attempts = self.quiz_attempt_counts.get(self.card_key(card), 0)
-            label = card["answer"] if recognition else card["move_san"]
+            label = card["move_san"]
             lines.append(f"- {label}: {attempts} attempt(s)")
 
         self.show_text("\n".join(lines))
@@ -2715,27 +2476,12 @@ class TheoryVaultApp:
             return
 
         show_all = self.move_cursor == 0 and position_key(self.board) == position_key(chess.Board())
-        status_filter = getattr(self, "repertoire_status_filter", "All")
-        filter_bar = ttk.Frame(self.right_body, style="Panel.TFrame")
-        filter_bar.pack(fill="x", pady=(0, 8))
-        for label in ("All", "Active", "Sidelined"):
-            ttk.Button(filter_bar, text=f"• {label}" if label == status_filter else label,
-                       command=lambda value=label: self.set_repertoire_status_filter(value)).pack(side="left", padx=(0, 5))
-        all_cards = [card for card in all_cards if status_filter == "All"
-                     or bool(card.get("sidelined")) == (status_filter == "Sidelined")]
         cards = self.filter_repertoire_continuations(all_cards, self.board, show_all=show_all)
         if not cards:
             ttk.Label(self.right_body, text="No matching saved moves at this position.",
                       style="TLabel").pack(anchor="w")
             self.status.set("No saved repertoire continuations from this position")
             return
-
-        grouping = getattr(self, "repertoire_grouping", "parents")
-        ttk.Button(
-            self.right_body,
-            text="View children" if grouping == "parents" else "View Parent",
-            command=self.toggle_repertoire_grouping,
-        ).pack(anchor="w", pady=(0, 10))
 
         list_frame = self.create_scrollable_right_body()
         if show_all:
@@ -2754,9 +2500,7 @@ class TheoryVaultApp:
         section_count = 0
         repertoire_ids = list(dict.fromkeys(card["repertoire_id"] for card in cards))
         for repertoire_id in repertoire_ids:
-            repertoire_cards = sorted(
-                (card for card in cards if card["repertoire_id"] == repertoire_id), key=self.repertoire_sort_key
-            )
+            repertoire_cards = [card for card in cards if card["repertoire_id"] == repertoire_id]
             representative = repertoire_cards[0]
             ttk.Label(
                 list_frame,
@@ -2778,61 +2522,49 @@ class TheoryVaultApp:
                     style="TLabel",
                     font=("Segoe UI", 11, "bold"),
                 ).pack(anchor="w", pady=(6, 6))
-                if grouping == "children":
-                    for path, child_cards in self.child_classification_groups(side_cards).items():
-                        index = self.render_child_section(list_frame, path, child_cards, index)
-                        section_count += 1
-                else:
-                    for opening, opening_cards in self.classification_groups(
-                        side_cards, "opening"
-                    ).items():
-                        index = self.render_opening_section(list_frame, opening, opening_cards, index)
-                        section_count += 1
+                focus_path = None if show_all else tuple(
+                    entry["move_uci"] for entry in self.move_history[:self.move_cursor]
+                )
+                for folder in move_folders(side_cards, focus_path, self.history_root_fen):
+                    index = self.render_move_folder(list_frame, folder, index)
+                    section_count += 1
 
         self.restore_repertoire_scroll_position()
-        if grouping == "children":
-            section_summary = f"{section_count} child {'class' if section_count == 1 else 'classes'}"
-        else:
-            section_summary = f"{section_count} {'opening' if section_count == 1 else 'openings'}"
+        section_summary = f"{section_count} move {'tree' if section_count == 1 else 'trees'}"
         if show_all:
             self.status.set(f"Viewing all {len(cards)} moves in {section_summary}")
         else:
             self.status.set(f"Exploring {len(cards)} continuing moves in {section_summary}")
 
-    def toggle_repertoire_grouping(self) -> None:
-        current = getattr(self, "repertoire_grouping", "parents")
-        self.repertoire_grouping = "children" if current == "parents" else "parents"
-        self.repertoire_scroll_fraction = 0.0
-        self.render_repertoire_explorer()
-
-    def set_repertoire_status_filter(self, value: str) -> None:
-        self.repertoire_status_filter = value
-        self.render_repertoire_explorer()
-
-    def render_sideline_actions(self, parent: ttk.Frame, cards: list[dict]) -> None:
-        cards = self.sideline_group_cards(cards)
-        actions = ttk.Frame(parent, style="Panel.TFrame")
-        actions.pack(anchor="w", pady=(4, 6))
-        for sidelined, label in ((True, "Sideline group"), (False, "Reactivate group")):
-            eligible = [card for card in cards if bool(card.get("sidelined")) != sidelined]
-            if eligible:
-                ttk.Button(actions, text=f"{label} ({len(eligible)})",
-                           command=lambda chosen=eligible, value=sidelined: self.change_sidelined(chosen, value)).pack(side="left", padx=(0, 5))
-
     def sideline_group_cards(self, cards: list[dict]) -> list[dict]:
         """Include actual descendants even when their opening classification changes."""
-        prefixes = [tuple(self.pgn_uci_moves(card["pgn"])) for card in cards]
+        if not cards:
+            return []
+        all_cards = getattr(self, "repertoire_explorer_cards", [])
+        # Explorer reloads replace this list. Filters only change the visible
+        # subset, so descendants across opening/status filters remain included.
+        if getattr(self, "_descendant_source", None) is not all_cards:
+            descendants: dict[tuple, list[int]] = {}
+            for index, card in enumerate(all_cards):
+                path = tuple(self.pgn_uci_moves(card["pgn"]))
+                scope = (card["repertoire_id"], card["repertoire_color"])
+                for length in range(1, len(path)):
+                    descendants.setdefault((*scope, path[:length]), []).append(index)
+            self._repertoire_descendants = descendants
+            self._descendant_source = all_cards
+
+        scope = (cards[0]["repertoire_id"], cards[0]["repertoire_color"])
+        indices: set[int] = set()
+        for card in cards:
+            prefix = tuple(self.pgn_uci_moves(card["pgn"]))
+            indices.update(self._repertoire_descendants.get((*scope, prefix), ()))
         result = list(cards)
-        for candidate in getattr(self, "repertoire_explorer_cards", []):
-            if candidate in result or not cards:
-                continue
-            if (candidate["repertoire_id"], candidate["repertoire_color"]) != (
-                cards[0]["repertoire_id"], cards[0]["repertoire_color"]
-            ):
-                continue
-            path = tuple(self.pgn_uci_moves(candidate["pgn"]))
-            if any(prefix and len(path) > len(prefix) and path[:len(prefix)] == prefix for prefix in prefixes):
+        included = {id(card) for card in cards}
+        for index in sorted(indices):
+            candidate = all_cards[index]
+            if id(candidate) not in included:
                 result.append(candidate)
+                included.add(id(candidate))
         return result
 
     def change_sidelined(self, cards: list[dict], sidelined: bool) -> None:
@@ -2868,197 +2600,28 @@ class TheoryVaultApp:
         self.view_repertoire()
         self.status.set(f"{'Sidelined' if sidelined else 'Reactivated'} {len(choices)} saved move(s)")
 
-    def render_child_section(
-        self,
-        parent: ttk.Frame,
-        path: tuple[str, ...],
-        cards: list[dict[str, str]],
-        start_index: int,
-    ) -> int:
-        """Render one flattened accordion for the most specific named class."""
-        section = ttk.Frame(parent, style="Panel.TFrame")
-        section.pack(fill="x", pady=(0, 8))
-
-        content = ttk.Frame(section, style="Panel.TFrame", padding=(10, 8, 0, 0))
-        header = ttk.Button(section, style="Accordion.TButton")
-        side_key = "White" if cards[0]["repertoire_color"] else "Black"
-        state_key = (cards[0]["repertoire_id"], side_key, "children", *path)
-        label = self.hierarchy_label(path[-1], cards)
-        header.configure(
-            text=f"+  {label}",
-            command=lambda: self.toggle_opening_section(
-                header,
-                content,
-                label,
-                state_key,
-            ),
-        )
-        header.pack(fill="x")
-
-        index = start_index
-        self.render_sideline_actions(content, cards)
-        index = self.render_repertoire_move_tree(content, cards, index)
-        self.restore_repertoire_section(header, content, label, state_key)
-        return index
-
-    def render_opening_section(
-        self,
-        parent: ttk.Frame,
-        opening: str,
-        cards: list[dict[str, str]],
-        start_index: int,
-    ) -> int:
-        section = ttk.Frame(parent, style="Panel.TFrame")
-        section.pack(fill="x", pady=(0, 8))
-
-        content = ttk.Frame(section, style="Panel.TFrame", padding=(10, 8, 0, 0))
-        header = ttk.Button(section, style="Accordion.TButton")
-        side_key = "White" if cards[0]["repertoire_color"] else "Black"
-        state_key = (cards[0]["repertoire_id"], side_key, opening)
-        label = self.hierarchy_label(opening, cards)
-        header.configure(
-            text=f"+  {label}",
-            command=lambda: self.toggle_opening_section(
-                header,
-                content,
-                label,
-                state_key,
-            ),
-        )
-        header.pack(fill="x")
-
-        index = start_index
-        self.render_sideline_actions(content, cards)
-        for variation, variation_cards in self.classification_groups(cards, "variation").items():
-            index = self.render_variation_section(
-                content,
-                variation,
-                variation_cards,
-                index,
-            )
-        self.restore_repertoire_section(header, content, label, state_key)
-        return index
-
-    def render_variation_section(
-        self,
-        parent: ttk.Frame,
-        variation: str,
-        cards: list[dict[str, str]],
-        start_index: int,
-    ) -> int:
+    def render_move_folder(self, parent: ttk.Frame, folder: MoveFolder, start_index: int) -> int:
         section = ttk.Frame(parent, style="Panel.TFrame")
         section.pack(fill="x", pady=(0, 6))
-
         content = ttk.Frame(section, style="Panel.TFrame", padding=(12, 7, 0, 0))
-        header = ttk.Button(section, style="Accordion.TButton")
-        classification = self.classify_opening(cards[0])
-        state_key = (
-            cards[0]["repertoire_id"],
-            "White" if cards[0]["repertoire_color"] else "Black",
-            classification["opening"],
-            variation,
-        )
-        label = self.hierarchy_label(variation, cards)
-        header.configure(
-            text=f"+  {label}",
-            command=lambda: self.toggle_opening_section(
-                header,
-                content,
-                label,
-                state_key,
-            ),
-        )
+        label = f"{folder.move_label} · {folder.name} ({len(folder.cards)})"
+        if folder.eco:
+            label += f" · {folder.eco}"
+        header = ttk.Button(section, style="Accordion.TButton", text=f"+  {label}",
+                            command=lambda: self.toggle_opening_section(header, content, label, folder.key))
         header.pack(fill="x")
 
-        subvariation_groups = self.classification_groups(cards, "subvariation")
-        has_named_subvariations = any(name != "Main line" for name in subvariation_groups)
-        index = start_index
-        if has_named_subvariations:
-            for subvariation, subvariation_cards in subvariation_groups.items():
-                index = self.render_subvariation_section(
-                    content,
-                    subvariation,
-                    subvariation_cards,
-                    index,
-                )
-        else:
-            index = self.render_repertoire_move_tree(content, cards, index)
-        self.restore_repertoire_section(header, content, label, state_key)
-        return index
+        def populate() -> None:
+            index = start_index
+            for card in folder.rows:
+                self.render_repertoire_row(content, index, card)
+                index += 1
+            for child in folder.children:
+                index = self.render_move_folder(content, child, index)
 
-    def render_subvariation_section(
-        self,
-        parent: ttk.Frame,
-        subvariation: str,
-        cards: list[dict[str, str]],
-        start_index: int,
-    ) -> int:
-        section = ttk.Frame(parent, style="Panel.TFrame")
-        section.pack(fill="x", pady=(0, 6))
-
-        content = ttk.Frame(section, style="Panel.TFrame", padding=(12, 7, 0, 0))
-        header = ttk.Button(section, style="Accordion.TButton")
-        classification = self.classify_opening(cards[0])
-        state_key = (
-            cards[0]["repertoire_id"],
-            "White" if cards[0]["repertoire_color"] else "Black",
-            classification["opening"],
-            classification["variation"] or "Main line",
-            subvariation,
-        )
-        label = self.hierarchy_label(subvariation, cards)
-        header.configure(
-            text=f"+  {label}",
-            command=lambda: self.toggle_opening_section(
-                header,
-                content,
-                label,
-                state_key,
-            ),
-        )
-        header.pack(fill="x")
-
-        index = start_index
-        index = self.render_repertoire_move_tree(content, cards, index)
-        self.restore_repertoire_section(header, content, label, state_key)
-        return index
-
-    def render_repertoire_move_tree(
-        self,
-        parent: ttk.Frame,
-        cards: list[dict[str, str]],
-        start_index: int,
-        depth: int = 0,
-    ) -> int:
-        """Render a shared move trunk followed by dividers at every PGN fork."""
-        trunk, branches = self.split_repertoire_branches(cards)
-        index = start_index
-        for card in trunk:
-            self.render_repertoire_row(parent, index, card)
-            index += 1
-
-        for move_label, branch_cards in branches:
-            divider = ttk.Frame(parent, style="Panel.TFrame", padding=(depth * 10, 2, 0, 7))
-            divider.pack(fill="x")
-            ttk.Label(
-                divider,
-                text=(
-                    f"Line  ·  {move_label}  ·  {len(branch_cards)} saved "
-                    f"{'move' if len(branch_cards) == 1 else 'moves'}"
-                ),
-                style="TLabel",
-                foreground=MUTED,
-                font=("Segoe UI", 9, "bold"),
-            ).pack(anchor="w")
-            ttk.Separator(divider, orient="horizontal").pack(fill="x", pady=(4, 0))
-            self.render_sideline_actions(divider, branch_cards)
-            index = self.render_repertoire_move_tree(
-                parent,
-                branch_cards,
-                index,
-                depth + 1,
-            )
-        return index
+        content._populate_repertoire = populate
+        self.restore_repertoire_section(header, content, label, folder.key)
+        return start_index + len(folder.cards)
 
     def toggle_opening_section(
         self,
@@ -3073,10 +2636,17 @@ class TheoryVaultApp:
             if state_key is not None:
                 self.repertoire_expanded_sections.discard(state_key)
         else:
+            self.populate_repertoire_section(content)
             content.pack(fill="x")
             header.configure(text=f"-  {opening}")
             if state_key is not None:
                 self.repertoire_expanded_sections.add(state_key)
+
+    def populate_repertoire_section(self, content: ttk.Frame) -> None:
+        populate = content.__dict__.get("_populate_repertoire")
+        if populate is not None:
+            populate()
+            content._populate_repertoire = None
 
     def restore_repertoire_section(
         self,
@@ -3086,6 +2656,7 @@ class TheoryVaultApp:
         state_key: tuple[str, ...],
     ) -> None:
         if state_key in self.repertoire_expanded_sections:
+            self.populate_repertoire_section(content)
             content.pack(fill="x")
             header.configure(text=f"-  {label}")
 
@@ -3096,8 +2667,6 @@ class TheoryVaultApp:
 
         context = card.get("contexts", [""])[0] or "Starting position"
         summary = self.ellipsize(self.repertoire_move_counter(card), 58)
-        if card.get("sidelined"):
-            summary = f"Sidelined · {summary}"
         move_line = self.ellipsize(f"{context} → {card['move_san']}", 62)
 
         ttk.Label(row, text=summary, style="TLabel", font=("Segoe UI", 10, "bold")).grid(
@@ -3118,9 +2687,6 @@ class TheoryVaultApp:
         ttk.Button(row, text="Edit", width=7, command=lambda c=card: self.open_repertoire_card(c, "edit")).grid(
             row=1, column=2, pady=(3, 0)
         )
-        ttk.Button(row, text="Reactivate" if card.get("sidelined") else "Sideline",
-                   command=lambda c=card: self.change_sidelined([c], not c.get("sidelined", False))).grid(
-                       row=2, column=1, columnspan=2, sticky="ew", pady=(5, 0))
 
     def toggle_repertoire_details(self, row: ttk.Frame, card: dict[str, str]) -> None:
         existing = getattr(row, "details_frame", None)
@@ -3130,7 +2696,7 @@ class TheoryVaultApp:
             return
 
         details = ttk.Frame(row, style="Panel.TFrame", padding=(0, 6, 0, 0))
-        details.grid(row=3, column=0, columnspan=3, sticky="ew")
+        details.grid(row=2, column=0, columnspan=3, sticky="ew")
         classification = self.classify_opening(card)
         accepted_text = ", ".join(
             f"{answer['move_san']} ({answer['move_uci']})" for answer in card["accepted_moves"]
@@ -3232,8 +2798,6 @@ class TheoryVaultApp:
         self.clear_quiz_actions()
         self.restore_board_to_cursor()
         action = "Editing" if mode == "edit" else "Viewing"
-        if card.get("sidelined"):
-            action += " sidelined move"
         self.status.set(f"{action} {card['move_san']} — use ← and → to navigate")
 
     def repertoire_line_start_cursor(self, mode: str, move_count: int) -> int:
@@ -3290,6 +2854,39 @@ class TheoryVaultApp:
     def ellipsize(self, text: str, max_chars: int) -> str:
         return text if len(text) <= max_chars else f"{text[: max_chars - 1]}…"
 
+    def ask_remove_scope(self, answer: dict, parent: tk.Misc) -> bool | None:
+        """Return True for the subtree, False for one answer, or None to cancel."""
+        dialog = tk.Toplevel(parent)
+        dialog.title("Remove saved move")
+        dialog.configure(bg=PANEL)
+        dialog.transient(parent)
+        dialog.resizable(False, False)
+        result = None
+
+        def choose(branch: bool | None) -> None:
+            nonlocal result
+            result = branch
+            dialog.destroy()
+
+        shell = ttk.Frame(dialog, style="Panel.TFrame", padding=18)
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text=f"Remove {answer['move_san']}?", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(shell, text=answer.get("pgn", ""), wraplength=440,
+                  style="TLabel").pack(anchor="w", pady=(6, 12))
+        ttk.Button(shell, text="Remove this move only", command=lambda: choose(False)).pack(fill="x")
+        ttk.Label(shell, text="Stop training this reply; keep its continuations.",
+                  style="TLabel", foreground=MUTED).pack(anchor="w", pady=(3, 12))
+        ttk.Button(shell, text="Remove this move and all moves below it",
+                   command=lambda: choose(True)).pack(fill="x")
+        ttk.Label(shell, text="Delete this move-order branch and all its continuations for both sides. Other branches stay intact.",
+                  wraplength=440, style="TLabel", foreground=MUTED).pack(anchor="w", pady=(3, 12))
+        ttk.Button(shell, text="Cancel", command=lambda: choose(None)).pack(anchor="e")
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose(None))
+        dialog.grab_set()
+        dialog.focus_force()
+        dialog.wait_window()
+        return result
+
     def remove_card_answer(self, card: dict) -> None:
         info = self.store.get(card["repertoire_id"])
         if info is None:
@@ -3301,22 +2898,30 @@ class TheoryVaultApp:
             return
 
         def remove(answer: dict, parent: tk.Misc = self.root) -> None:
-            if not messagebox.askyesno(
-                "Remove answer",
-                f"Stop training {answer['move_san']} from this position?\n\n"
-                "The move remains in the PGN when it is needed as context.",
-                parent=parent,
-            ):
+            selection = dict(card)
+            selection.update(answer)
+            branch = self.ask_remove_scope(selection, parent)
+            if branch is None:
                 return
-            removed = self.store.remove_answer(info, card["position_key"], answer["move_uci"])
+            try:
+                if branch:
+                    removed = self.store.remove_branch(info, selection["pgn"])
+                else:
+                    removed = self.store.remove_answer(info, card["position_key"], answer["move_uci"])
+            except (ValueError, OSError) as exc:
+                messagebox.showerror("Could not remove move", str(exc), parent=parent)
+                return
             if isinstance(parent, tk.Toplevel):
                 parent.destroy()
             self.view_repertoire()
-            self.status.set(f"Removed {answer['move_san']} from {removed} PGN path(s)")
+            self.status.set(
+                f"Removed {answer['move_san']} and its branch ({removed} saved moves)"
+                if branch else f"Removed {answer['move_san']} from {removed} PGN path(s)"
+            )
             repertoire_side = "White" if card["repertoire_color"] == chess.WHITE else "Black"
             self.show_toast(
-                f"Deleted from {repertoire_side} repertoire",
-                f"{answer['move_san']} · {info.name}",
+                "Deleted repertoire branch" if branch else f"Deleted from {repertoire_side} repertoire",
+                f"{answer['move_san']} and continuations · {info.name}" if branch else f"{answer['move_san']} · {info.name}",
                 DESTRUCTIVE,
             )
 
@@ -3368,8 +2973,6 @@ class TheoryVaultApp:
 
         card = self.active_line_card
         mode_text = "EDITING" if editing else "VIEWING"
-        if card is not None and card.get("sidelined"):
-            mode_text += " · SIDELINED"
         mode_color = "#b45309" if editing else "#1d4ed8"
         tk.Label(
             self.right_body,

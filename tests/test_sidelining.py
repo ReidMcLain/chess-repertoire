@@ -153,6 +153,29 @@ class SideliningTests(unittest.TestCase):
                 [(c["position_key"], c["move_uci"]) for c in (first, second)], False)
         self.assertEqual(before, self.info.path.read_bytes())
 
+    def test_descendant_index_reuses_paths_and_refreshes_after_reload(self):
+        def card(pgn, repertoire="test", side=True, sidelined=False):
+            return dict(pgn=pgn, repertoire_id=repertoire,
+                        repertoire_color=side, sidelined=sidelined)
+
+        parent = card("1. e4 *")
+        child = card("1. e4 e5 2. Nf3 *", sidelined=True)
+        sibling = card("1. d4 d5 2. c4 *")
+        other_repertoire = card(child["pgn"], repertoire="other")
+        other_side = card("1. e4 e5 *", side=False)
+        app = TheoryVaultApp.__new__(TheoryVaultApp)
+        app.repertoire_explorer_cards = [parent, child, sibling, other_repertoire, other_side]
+        with patch.object(app, "pgn_uci_moves", wraps=app.pgn_uci_moves) as parse:
+            self.assertEqual([parent, child], app.sideline_group_cards([parent]))
+            parse.reset_mock()
+            self.assertEqual([parent, child], app.sideline_group_cards([parent]))
+            self.assertEqual(1, parse.call_count)
+            self.assertEqual([parent, child], app.sideline_group_cards([parent, child]))
+        replacement = card("1. e4 c5 2. Nf3 *")
+        app.repertoire_explorer_cards = [parent, replacement]
+        self.assertEqual([parent, replacement], app.sideline_group_cards([parent]))
+        self.assertEqual([], app.sideline_group_cards([]))
+
 
 if __name__ == "__main__":
     unittest.main()

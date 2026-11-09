@@ -1,0 +1,1425 @@
+{
+  "repertoire_ids": [
+    "reid-s-repertoire"
+  ],
+  "rules": [
+    {
+      "name": "Evan's Gambit declined",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Bc5",
+        "b4",
+        "Bb6"
+      ]
+    },
+    {
+      "name": "Main Line Evan's Gambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Bc5",
+        "b4",
+        "Bxb4",
+        "c3",
+        "Ba5"
+      ]
+    },
+    {
+      "name": "Evan's Gambit McDonnell Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Bc5",
+        "b4",
+        "Bxb4",
+        "c3",
+        "Bc5"
+      ]
+    },
+    {
+      "name": "Evan's Gambit Stone-Ware",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Bc5",
+        "b4",
+        "Bxb4",
+        "c3",
+        "Bd6"
+      ]
+    },
+    {
+      "name": "Evan's Gambit Anderssen Variation",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Bc5",
+        "b4",
+        "Bxb4",
+        "c3",
+        "Be7"
+      ]
+    },
+    {
+      "name": "d5 2N Italian",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Nf6",
+        "d3",
+        "d5"
+      ]
+    },
+    {
+      "name": "d6 2N Italian",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Nf6",
+        "d3",
+        "d6"
+      ]
+    },
+    {
+      "name": "Giuoco Pianissimo",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Nf6",
+        "d3",
+        "Bc5"
+      ]
+    },
+    {
+      "name": "h6 2N Italian",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Nf6",
+        "d3",
+        "h6"
+      ]
+    },
+    {
+      "name": "Be7 2N Italian",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Nf6",
+        "d3",
+        "Be7"
+      ]
+    },
+    {
+      "name": "Paris Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "d6"
+      ]
+    },
+    {
+      "name": "Anti-Fried Liver Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "h6"
+      ]
+    },
+    {
+      "name": "Rousseau Gambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "f5"
+      ]
+    },
+    {
+      "name": "Hungarian Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Be7"
+      ]
+    },
+    {
+      "name": "Schilling-Kostic Gambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nc6",
+        "Bc4",
+        "Nd4"
+      ]
+    },
+    {
+      "name": "Exchange Philidor",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d6",
+        "d4",
+        "exd4"
+      ]
+    },
+    {
+      "name": "Hanham Philidor",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d6",
+        "d4",
+        "Nd7"
+      ]
+    },
+    {
+      "name": "Nc6 Philidor",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d6",
+        "d4",
+        "Nc6"
+      ]
+    },
+    {
+      "name": "Bg4 Philidor",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d6",
+        "d4",
+        "Bg4"
+      ]
+    },
+    {
+      "name": "f6 Philidor",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d6",
+        "d4",
+        "f6"
+      ]
+    },
+    {
+      "name": "Philidor Countergambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d6",
+        "d4",
+        "f5"
+      ]
+    },
+    {
+      "name": "Nimzowitsch Philidor",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d6",
+        "d4",
+        "Nf6"
+      ]
+    },
+    {
+      "name": "Petrov Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Nf6"
+      ]
+    },
+    {
+      "name": "Busch-Gass Gambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Bc5"
+      ]
+    },
+    {
+      "name": "Elephant Gambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "d5"
+      ]
+    },
+    {
+      "name": "McConnell Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Qf6"
+      ]
+    },
+    {
+      "name": "Latvian Gambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "f5"
+      ]
+    },
+    {
+      "name": "Damiano Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "f6"
+      ]
+    },
+    {
+      "name": "Gunderam Gambit",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "c6"
+      ]
+    },
+    {
+      "name": "Gunderam Defense",
+      "moves": [
+        "e4",
+        "e5",
+        "Nf3",
+        "Qe7"
+      ]
+    },
+    {
+      "name": "Lowenthal",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "e5"
+      ]
+    },
+    {
+      "name": "Accelerated Dragon",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "g6"
+      ]
+    },
+    {
+      "name": "e6 Open Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "e6"
+      ]
+    },
+    {
+      "name": "d6 Open Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "d6"
+      ]
+    },
+    {
+      "name": "Nf6 Open Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "Nf6"
+      ]
+    },
+    {
+      "name": "Nxd4 Open Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "Nxd4"
+      ]
+    },
+    {
+      "name": "Godiva Variation",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "Qb6"
+      ]
+    },
+    {
+      "name": "Nimzo-American",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "d5"
+      ]
+    },
+    {
+      "name": "Modern Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "d6"
+      ]
+    },
+    {
+      "name": "French Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "e6"
+      ]
+    },
+    {
+      "name": "Hyper Accelerated Dragon Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "g6"
+      ]
+    },
+    {
+      "name": "O'Kelly Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "a6"
+      ]
+    },
+    {
+      "name": "d5 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "d5"
+      ]
+    },
+    {
+      "name": "b6 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "b6"
+      ]
+    },
+    {
+      "name": "c5 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "c5"
+      ]
+    },
+    {
+      "name": "c6 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "c6"
+      ]
+    },
+    {
+      "name": "Ne7 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "Ne7"
+      ]
+    },
+    {
+      "name": "d6 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "d6"
+      ]
+    },
+    {
+      "name": "Nc6 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "Nc6"
+      ]
+    },
+    {
+      "name": "g6 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "g6"
+      ]
+    },
+    {
+      "name": "Be7 French",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "Be7"
+      ]
+    },
+    {
+      "name": "Mediterranean Defense",
+      "moves": [
+        "e4",
+        "e6",
+        "d4",
+        "Nf6"
+      ]
+    },
+    {
+      "name": "Qa5 Mieses-Kotrč Variation",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "Qxd5",
+        "Nc3",
+        "Qa5"
+      ]
+    },
+    {
+      "name": "Valencian Scandanavian",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "Qxd5",
+        "Nc3",
+        "Qd8"
+      ]
+    },
+    {
+      "name": "Qe5 Mieses-Kotrč Variation",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "Qxd5",
+        "Nc3",
+        "Qe5+"
+      ]
+    },
+    {
+      "name": "Qe6 Mieses-Kotrč Variation",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "Qxd5",
+        "Nc3",
+        "Qe6+"
+      ]
+    },
+    {
+      "name": "Gubinsky-Melts Defense",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "Qxd5",
+        "Nc3",
+        "Qd6"
+      ]
+    },
+    {
+      "name": "Nf6 Scandinavian",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "Nf6"
+      ]
+    },
+    {
+      "name": "e6 Scandinavian",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "e6"
+      ]
+    },
+    {
+      "name": "e5 Scandinavian",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "e5"
+      ]
+    },
+    {
+      "name": "Blackburne-Kloosterboer Gambit",
+      "moves": [
+        "e4",
+        "d5",
+        "exd5",
+        "c6"
+      ]
+    },
+    {
+      "name": "dxe4 2NA Caro-Kann",
+      "moves": [
+        "e4",
+        "c6",
+        "Nf3",
+        "d5",
+        "Nc3",
+        "dxe4"
+      ]
+    },
+    {
+      "name": "Bg4 2NA Caro-Kann",
+      "moves": [
+        "e4",
+        "c6",
+        "Nf3",
+        "d5",
+        "Nc3",
+        "Bg4"
+      ]
+    },
+    {
+      "name": "d4 2NA Caro-Kann",
+      "moves": [
+        "e4",
+        "c6",
+        "Nf3",
+        "d5",
+        "Nc3",
+        "d4"
+      ]
+    },
+    {
+      "name": "Nf6 2NA Caro-Kann",
+      "moves": [
+        "e4",
+        "c6",
+        "Nf3",
+        "d5",
+        "Nc3",
+        "Nf6"
+      ]
+    },
+    {
+      "name": "e6 2NA Caro-Kann",
+      "moves": [
+        "e4",
+        "c6",
+        "Nf3",
+        "d5",
+        "Nc3",
+        "e6"
+      ]
+    },
+    {
+      "name": "Modern",
+      "moves": [
+        "e4",
+        "g6"
+      ]
+    },
+    {
+      "name": "St. George Defense",
+      "moves": [
+        "e4",
+        "a6"
+      ]
+    },
+    {
+      "name": "Owen's Defense",
+      "moves": [
+        "e4",
+        "b6"
+      ]
+    },
+    {
+      "name": "Pirc Defense",
+      "moves": [
+        "e4",
+        "d6"
+      ]
+    },
+    {
+      "name": "Nimzowitsch Defense",
+      "moves": [
+        "e4",
+        "Nc6"
+      ]
+    },
+    {
+      "name": "Alekhine Defense",
+      "moves": [
+        "e4",
+        "Nf6"
+      ]
+    },
+    {
+      "name": "Duras Gambit",
+      "moves": [
+        "e4",
+        "f5"
+      ]
+    },
+    {
+      "name": "Barnes Defense",
+      "moves": [
+        "e4",
+        "f6"
+      ]
+    },
+    {
+      "name": "Borg Defense",
+      "moves": [
+        "e4",
+        "g5"
+      ]
+    },
+    {
+      "name": "Modern Accelerated Dragon",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "g6",
+        "Nc3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Exchange Accelerated Dragon",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "g6",
+        "Nxc6"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Be3 Accelerated Dragon",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "g6",
+        "Be3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Maroczy Bind",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "g6",
+        "c4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bc4 Accelerated Dragon",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "g6",
+        "Bc4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bb5 Accelerated Dragon",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Nxd4",
+        "g6",
+        "Bb5"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "c3 Open Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "c3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bc4 Open Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Bc4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bb5 Open Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d4",
+        "cxd4",
+        "Bb5"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bc4 Old Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "Bc4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Alapin Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "c3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Rossolimo",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "Bb5"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Nc3 Old Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "Nc3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "d3 Old Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "d3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "b3 Old Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "b3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Portsmouth Gambit",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "b4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "e5 Old Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Nf3",
+        "Nc6",
+        "e5"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Qf3 Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "Qf3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Wing Gambit",
+      "moves": [
+        "e4",
+        "c5",
+        "b4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Nf3 Closed Sicilian, traditional",
+      "moves": [
+        "e4",
+        "c5",
+        "Nc3",
+        "Nc6",
+        "Nf3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Grand Prix Attack",
+      "moves": [
+        "e4",
+        "c5",
+        "Nc3",
+        "Nc6",
+        "f4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bc4 Closed Sicilian, traditional",
+      "moves": [
+        "e4",
+        "c5",
+        "Nc3",
+        "Nc6",
+        "Bc4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bb5 Closed Sicilian, traditional",
+      "moves": [
+        "e4",
+        "c5",
+        "Nc3",
+        "Nc6",
+        "Bb5"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "d3 Closed Sicilian, traditional",
+      "moves": [
+        "e4",
+        "c5",
+        "Nc3",
+        "Nc6",
+        "d3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bowdler Attack",
+      "moves": [
+        "e4",
+        "c5",
+        "Bc4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Smith-Morra Gambit",
+      "moves": [
+        "e4",
+        "c5",
+        "d4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Alapin",
+      "moves": [
+        "e4",
+        "c5",
+        "c3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "McDonnell Attack",
+      "moves": [
+        "e4",
+        "c5",
+        "f4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "d3 Sicilian",
+      "moves": [
+        "e4",
+        "c5",
+        "d3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Cowboy Attack",
+      "moves": [
+        "e4",
+        "c5",
+        "b3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Lasker-Dunne Attack",
+      "moves": [
+        "e4",
+        "c5",
+        "g3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Staunton-Cochrane",
+      "moves": [
+        "e4",
+        "c5",
+        "c4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Mengarini",
+      "moves": [
+        "e4",
+        "c5",
+        "a3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Benoni",
+      "moves": [
+        "d4",
+        "Nf6",
+        "c4",
+        "c5"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Accelerated London",
+      "moves": [
+        "d4",
+        "Nf6",
+        "Bf4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Knights Indian",
+      "moves": [
+        "d4",
+        "Nf6",
+        "Nf3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "e3 Indian",
+      "moves": [
+        "d4",
+        "Nf6",
+        "e3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "c3 Indian",
+      "moves": [
+        "d4",
+        "Nf6",
+        "c3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Canard Opening",
+      "moves": [
+        "d4",
+        "Nf6",
+        "f4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Trompowsky",
+      "moves": [
+        "d4",
+        "Nf6",
+        "Bg5"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Nc3 Indian",
+      "moves": [
+        "d4",
+        "Nf6",
+        "Nc3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Réti Opening",
+      "moves": [
+        "Nf3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Van 't Kruijs Opening",
+      "moves": [
+        "e3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "English Opening",
+      "moves": [
+        "c4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Nimzo-Larsen Attack",
+      "moves": [
+        "b3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "King's Fianchetto Opening",
+      "moves": [
+        "g3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Bird Opening",
+      "moves": [
+        "f4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Mieses Opening",
+      "moves": [
+        "d3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Polish Opening",
+      "moves": [
+        "b4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Grob Opening",
+      "moves": [
+        "g4"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Saragossa Opening",
+      "moves": [
+        "c3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Van Geet Opening",
+      "moves": [
+        "Nc3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    },
+    {
+      "name": "Anderssen Opening",
+      "moves": [
+        "a3"
+      ],
+      "colors": [
+        "Black"
+      ]
+    }
+  ],
+  "position_aliases": {
+    "Nf3 Closed Sicilian, traditional": "Nc3 Old Sicilian"
+  }
+}

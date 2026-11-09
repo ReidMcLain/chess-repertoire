@@ -46,11 +46,15 @@ It shows:
 
 `View` opens the saved line at its training position with the repertoire side at the bottom. Use the board arrows or the keyboard Left/Right arrows to move through the line. `Edit` opens the same navigable line in a clearly marked editing mode; branch from any earlier position and use `Save changes` to replace the trained move.
 
-The Saved Repertoire browser starts with collapsed parent openings such as French Defense, Sicilian Defense, and Italian Game. Expanding a parent reveals its ECO groups, followed by variations and named lines.
+`Remove` offers two choices: stop training only that reply while keeping its continuations, or delete that move and its entire move-order branch from the PGN. Branch removal includes continuations for both colors and preserves sibling branches and other move orders. Cancel closes the prompt without changing anything.
 
-Quiz order follows the saved PGN tree. Before each prompt, the opponent's preceding move slides into place so the position arrives like it would in an online game; board input unlocks when that short animation finishes. Moves in a selected family are drilled together in branch order instead of being shuffled position by position. The family tree follows actual PGN move-prefix ancestry, so a continuous line remains together when its catalog label or ECO changes—for example, Old Sicilian → Open → Accelerated Dragon. Sequential trained lead-in moves are included automatically without opening-specific move-number rules. At the end of a quiz round, missed moves can be replayed as a smaller follow-up round with `Only Replay Missed moves`; the app keeps the prior round scores and attempt counts. A compact fixed-width counter below the board shows completed versus total quiz moves without expanding the window.
+The Saved Repertoire browser uses one collapsed folder hierarchy based on exact move order. Shared moves stay together, branches split into nested folders, and opening-name changes stay beneath their actual move ancestors—for example, Benoni Defense → Benko Gambit → Benko Gambit Accepted. Folder labels retain move numbers, opening names, ECO codes, and saved-move counts. Continuous moves with the same classification share a folder, and folder contents load only when expanded.
 
-The hierarchical quiz selector discovers families dynamically and separates the White and Black trees inside each repertoire. It starts with a compact, collapsed list of parent families; expand one to follow its opening-name transitions, variations, and exact continuations. A parent selection includes its descendant lines and each continuation includes its trained ancestors in move order. During the drill, a chess title card above the board shows the exact family/context, ECO, tree number, and local move progress. `Restart Quiz` repeats the same selected trees.
+As you play or navigate the board, the browser starts at the current opening folder and shows its remaining continuations. Earlier ancestor folders are hidden—for example, reaching the Accelerated Dragon shows that folder directly. Returning to the starting position restores the full hierarchy.
+
+Quiz order follows the saved PGN tree. After the first prompt in a selected tree, the opponent's preceding move slides into place so the position arrives like it would in an online game; board input unlocks when that short animation finishes. Moves in a selected family are drilled together in branch order instead of being shuffled position by position. The family tree follows actual PGN move-prefix ancestry, so a continuous line remains together when its catalog label or ECO changes—for example, Old Sicilian → Open → Accelerated Dragon. Each selected tree starts at its defining position; earlier trained moves are skipped. At the end of a quiz round, missed moves can be replayed as a smaller follow-up round with `Only Replay Missed moves`; the app keeps the prior round scores and attempt counts. A compact fixed-width counter below the board shows completed versus total quiz moves without expanding the window.
+
+The hierarchical quiz selector discovers families dynamically and separates the White and Black trees inside each repertoire. It starts with a compact, collapsed list of parent families; expand one to follow its opening-name transitions, variations, and exact continuations. A parent selection includes its descendant lines and each continuation starts after its defining position. During the drill, a chess title card above the board shows the exact family/context, ECO, tree number, and local move progress. `Restart Quiz` repeats the same selected trees.
 
 New quizzes put weaker selected opening families first, using the average of each unique position's hidden `(correct + 1) / (attempts + 2)` score. Unattempted positions contribute `0.5`, and tied families retain their existing order. Connected branches and move order within each family stay intact; all selected moves remain in the quiz, with shared positions still asked once. Each graded answer, including missed-move replays, updates local history for future quizzes. Restarting repeats the current sequence. History is saved in `quiz-history.sqlite3` in the user-data root (the project folder for source runs); changing a trained reply gives that reply separate history. Existing quizzes have no saved historical counts, so learning history starts with this version.
 
@@ -76,18 +80,53 @@ Use `Import PGN` to load a local `.pgn` file or pasted PGN text. Ordinary PGNs c
 The app ignores duplicate saves of the same reply and replaces conflicting replies from the same position. Opening names are matched from each prompt's PGN move sequence or normalized transposed position. Positions outside the bundled opening catalog are labeled `Unclassified position` rather than guessed.
 Each opening section starts collapsed and displays the number of saved moves it contains.
 
-In `View repertoire`, use `Sideline` on a saved move, or `Sideline group` inside an opening or branch, to intentionally keep theory inactive. Group actions include saved descendants even when their opening names change, but do not sideline shared lead-in moves. `All`, `Active`, and `Sidelined` filters control browsing; quizzes use active replies only. Sidelined moves retain their notes and training selections in PGN comments using `[%TheoryVault_sidelined 1]`.
+`View repertoire` shows all saved moves, narrowed by the current board position. Each saved move has `Details`, `Remove`, `View`, and `Edit` actions. Status filters and sideline/reactivate buttons are no longer shown. Existing sidelined moves retain their notes and training selections in PGN comments using `[%TheoryVault_sidelined 1]`; quizzes still use active replies only.
 
-Ordinary corrections and replacements never archive or sideline the old reply. Explicitly sidelined replies survive new active alternatives and PGN merges. New moves added beneath a sidelined move stay sidelined, and editing a sidelined reply keeps that status. `Reactivate` restores training; if another reply is active at that position, the app shows the conflict before replacing it. Sidelining applies to the same position/reply across transpositions. A whole-repertoire PGN `replace` import still replaces the file, including any sidelined theory; use `merge` to preserve it.
+Ordinary corrections and replacements never archive or sideline the old reply. Explicitly sidelined replies survive new active alternatives and PGN merges. New moves added beneath a sidelined move stay sidelined, and editing a sidelined reply keeps that status. Sidelining applies to the same position/reply across transpositions. A whole-repertoire PGN `replace` import still replaces the file, including any sidelined theory; use `merge` to preserve it.
 
 ## Opening Classification
+
+Reid's repertoire (`reid-s-repertoire`) uses the 128 ReidMate naming rules
+exported from the opening audit app in `data/openings/reidmate_overrides.json`.
+Overrides are scoped by repertoire and training color, and recognize positions
+reached by transposition. The shared Old/Closed Sicilian knight position is
+named `Nc3 Old Sicilian` in both move orders. Later catalog variations remain
+children of the custom parent. Other repertoires use the catalog as before.
+These are display names for folders, quiz selection/titles, and viewed saved
+lines; they do not rewrite PGNs, training marks, or quiz history. New folders
+appear only where existing saved paths reach the corresponding position.
+The JSON is a snapshot; future edits in the audit app are not synced automatically.
+
+The quiz selector lists ReidMate rule names as its main opening choices, with
+deeper catalog variations below them. Selecting an opening starts the drill at
+that opening's position, asking only for saved replies after it has been reached.
+Lead-in moves and the move defining the selected opening are skipped. The first
+prompt is shown directly at its saved position. Unmatched saved
+lines remain selectable under `Other saved lines`. During a drill, the rule
+name is the main heading once its position has been reached, with deeper
+catalog detail beneath it. Titles never use the expected reply to name the
+position being shown.
+
+Correct and incorrect quiz feedback advances after 500 ms; the checkmark and
+X each animate over 250 ms.
+
+Quiz checkboxes are saved automatically on each change, Select all, Clear all,
+and closing the selector, including Cancel. Choices survive app restarts and
+are stored separately for each repertoire, color, and opening path in
+`quiz-selections.json` in the user-data directory. New openings start unchecked
+for a previously configured repertoire side; a new side starts with all root
+choices selected. A temporary ply limit does not erase a checked choice.
+The ply limit itself still defaults to the maximum when reopening the selector.
 
 Opening records are data, not hard-coded UI rules. The app loads the pinned,
 CC0-licensed Lichess opening catalog from `data/openings/openings.tsv` through
 `opening_classifier.py`. The catalog currently contains 3,803 named positions
 with ECO codes, canonical PGN/UCI sequences, and normalized positions.
-Names and hierarchy are displayed directly from the catalog without app-specific
-aliases or naming overrides. ECO codes are shown with opening groups—for example,
+Names come from the catalog, with one display override: `Zukertort Opening`
+under `1. Nf3` is displayed as `Reti Opening`, including its named variations. Variation
+names and ECO codes are preserved; transitions to other opening families keep
+their catalog names.
+ECO codes are shown with opening groups—for example,
 `B30 · Sicilian Defense > Old Sicilian` and `B23 · Sicilian Defense > Closed`.
 
 ## Install

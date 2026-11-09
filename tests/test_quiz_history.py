@@ -152,57 +152,45 @@ class QuizHistoryTests(unittest.TestCase):
 
         self.app.quiz_counter.set.assert_called_once_with("Score: 1/2 correct (50%)  •  2/4 answered")
 
-    def test_card_key_supports_theory_and_recognition_card_schemas(self) -> None:
+    def test_card_key_uses_prompt_id_or_repertoire_position(self) -> None:
         theory = card("theory")
-        recognition = {
-            "prompt_id": "opening-recognition:families:position",
-            "move_uci": "recognition-answer-id",
-            "fen": chess.Board().fen(),
-            "answer": "Sicilian Defense",
-            "quiz_kind": "recognition",
-        }
         self.assertEqual(theory["prompt_id"], self.app.card_key(theory))
         theory_without_prompt = {key: value for key, value in theory.items() if key != "prompt_id"}
         self.assertEqual("main:" + theory["before_fen"], self.app.card_key(theory_without_prompt))
-        self.assertEqual(recognition["prompt_id"], self.app.card_key(recognition))
-
-    def test_incorrect_recognition_answer_records_and_replays_as_recognition(self) -> None:
-        recognition = {
-            "prompt_id": "opening-recognition:families:position",
-            "move_uci": "recognition-answer-id",
-            "fen": chess.Board().fen(),
-            "answer": "Sicilian Defense",
-            "quiz_kind": "recognition",
-        }
-        self.app.quiz_results = []
-        self.app.update_quiz_counter = MagicMock()
-        self.app.add_quiz_result(recognition, False)
-        self.assertEqual(1 / 3, self.history.scores()[self.history.key(recognition)])
-
-        self.app.last_missed_cards = [recognition]
-        self.app.begin_opening_recognition = MagicMock()
-        self.app.begin_quiz = MagicMock()
-        self.app.replay_missed_moves()
-        self.app.begin_opening_recognition.assert_called_once_with([recognition])
-        self.app.begin_quiz.assert_not_called()
 
     def test_missed_theory_move_replays_as_theory(self) -> None:
         theory = card("theory")
         self.app.last_missed_cards = [theory]
-        self.app.begin_opening_recognition = MagicMock()
         self.app.begin_quiz = MagicMock()
         self.app.replay_missed_moves()
         self.app.begin_quiz.assert_called_once_with([theory])
-        self.app.begin_opening_recognition.assert_not_called()
 
-    def test_recognition_orientation_faces_the_defining_move_from_the_opponent(self) -> None:
-        # The Najdorf defining move ...a6 is Black's, so Recognition should
-        # face White (the player recognizing Black's system).
-        self.app.mode = "recognition_quiz"
-        self.app.board = chess.Board()
-        self.app.board.push_san("e4")
-        self.app.orientation_turn = not self.app.board.turn
-        self.assertEqual(chess.WHITE, self.app.current_orientation())
+    def test_quiz_opens_saved_move_selector_directly(self) -> None:
+        cards = [card("theory")]
+        self.app.quiz_dialog = None
+        self.app.load_repertoire = MagicMock(return_value=cards)
+        self.app.show_quiz_selector = MagicMock()
+        self.app.start_quiz()
+        self.app.show_quiz_selector.assert_called_once_with(cards)
+
+    def test_quiz_without_saved_moves_explains_how_to_add_them(self) -> None:
+        self.app.quiz_dialog = None
+        self.app.load_repertoire = MagicMock(return_value=[])
+        self.app.show_quiz_selector = MagicMock()
+        self.app.status = MagicMock()
+        self.app.show_text = MagicMock()
+        self.app.start_quiz()
+        self.app.show_quiz_selector.assert_not_called()
+        self.app.status.set.assert_called_once_with("No saved repertoire moves yet")
+        self.assertIn("Add move", self.app.show_text.call_args.args[0])
+
+    def test_quiz_reuses_existing_selector(self) -> None:
+        self.app.quiz_dialog = MagicMock()
+        self.app.load_repertoire = MagicMock(return_value=[card("theory")])
+        self.app.show_quiz_selector = MagicMock()
+        self.app.start_quiz()
+        self.app.quiz_dialog.lift.assert_called_once_with()
+        self.app.show_quiz_selector.assert_not_called()
 
 
 if __name__ == "__main__":

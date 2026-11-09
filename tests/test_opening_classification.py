@@ -212,65 +212,7 @@ class OpeningClassificationTests(unittest.TestCase):
 
         self.assertEqual(["Main line", "Maroczy Bind"], list(groups))
 
-    def test_child_groups_use_each_cards_most_specific_named_class(self) -> None:
-        cards = [
-            {
-                "opening": "Sicilian Defense",
-                "variation": "Accelerated Dragon",
-                "subvariation": "",
-            },
-            {
-                "opening": "Sicilian Defense",
-                "variation": "Accelerated Dragon",
-                "subvariation": "Maroczy Bind",
-            },
-            {
-                "opening": "Nimzo-Indian Defense",
-                "variation": "",
-                "subvariation": "",
-            },
-        ]
-
-        groups = self.app.child_classification_groups(cards)
-
-        self.assertEqual(
-            [
-                ("Sicilian Defense", "Accelerated Dragon"),
-                ("Sicilian Defense", "Accelerated Dragon", "Maroczy Bind"),
-                ("Nimzo-Indian Defense",),
-            ],
-            list(groups),
-        )
-        self.assertEqual([cards[1]], groups[("Sicilian Defense", "Accelerated Dragon", "Maroczy Bind")])
-
-    def test_child_groups_keep_same_named_leaf_under_different_parents_separate(self) -> None:
-        cards = [
-            {"opening": "Opening A", "variation": "Classical", "subvariation": ""},
-            {"opening": "Opening B", "variation": "Classical", "subvariation": ""},
-        ]
-
-        groups = self.app.child_classification_groups(cards)
-
-        self.assertEqual(
-            [("Opening A", "Classical"), ("Opening B", "Classical")],
-            list(groups),
-        )
-
-    def test_repertoire_grouping_toggle_switches_between_parent_and_child_views(self) -> None:
-        render_calls = []
-        self.app.repertoire_grouping = "parents"
-        self.app.repertoire_scroll_fraction = 0.75
-        self.app.render_repertoire_explorer = lambda: render_calls.append(True)
-
-        self.app.toggle_repertoire_grouping()
-
-        self.assertEqual("children", self.app.repertoire_grouping)
-        self.assertEqual(0.0, self.app.repertoire_scroll_fraction)
-        self.app.toggle_repertoire_grouping()
-        self.assertEqual("parents", self.app.repertoire_grouping)
-        self.assertEqual(2, len(render_calls))
-
-    def test_variation_study_includes_sequential_lead_in_quiz_moves(self) -> None:
+    def test_variation_study_excludes_lead_in_quiz_moves(self) -> None:
         cards = [
             {
                 "repertoire_id": "white",
@@ -315,7 +257,7 @@ class OpeningClassificationTests(unittest.TestCase):
             ("French Defense", "Rubinstein Variation"),
         )
 
-        self.assertEqual(cards[1:4], selected)
+        self.assertEqual(cards[2:4], selected)
 
     def test_selected_study_trees_deduplicate_shared_transposition_prompts(self) -> None:
         english = ("black", chess.BLACK, ("English Opening",))
@@ -429,7 +371,7 @@ class OpeningClassificationTests(unittest.TestCase):
 
         self.assertEqual(cards[1:], selected)
 
-    def test_opening_study_keeps_sequential_black_ancestors(self) -> None:
+    def test_opening_study_skips_black_move_defining_the_opening(self) -> None:
         cards = [
             {
                 "repertoire_id": "black",
@@ -449,7 +391,7 @@ class OpeningClassificationTests(unittest.TestCase):
 
         selected = self.app.study_cards_for_path(cards, "black", ("French Defense",))
 
-        self.assertEqual(cards, selected)
+        self.assertEqual(cards[1:], selected)
 
     def test_family_tree_preserves_opening_name_transitions(self) -> None:
         cards = [
@@ -496,7 +438,7 @@ class OpeningClassificationTests(unittest.TestCase):
             ),
             paths[-1],
         )
-        self.assertEqual(cards, selected)
+        self.assertEqual(cards[-1:], selected)
 
     def test_family_tree_nests_changed_opening_names_under_their_lead_in(self) -> None:
         cards = [

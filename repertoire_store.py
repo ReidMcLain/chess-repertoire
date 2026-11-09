@@ -180,7 +180,8 @@ def _line_pgn(moves: list[chess.Move], root_board: chess.Board) -> str:
     node: chess.pgn.GameNode = game
     for move in moves:
         node = node.add_variation(move)
-    exporter = chess.pgn.StringExporter(headers=False, variations=False, comments=False, columns=None)
+    # Custom-position lines need their FEN to identify the correct tree root.
+    exporter = chess.pgn.StringExporter(headers="FEN" in game.headers, variations=False, comments=False, columns=None)
     return game.accept(exporter).strip()
 
 
@@ -501,6 +502,39 @@ class RepertoireStore:
             visit(game, game.board())
         if removed:
             self._atomic_write(info.path, games)
+        return removed
+
+    def remove_branch(self, info: RepertoireInfo, pgn: str) -> int:
+        """Delete an exact move-order subtree, preserving other transpositions."""
+        lines, errors = parse_pgn(pgn)
+        if errors or len(lines) != 1:
+            raise ValueError("The saved move's PGN path could not be read.")
+        line = lines[0]
+        moves = list(line.mainline_moves())
+        if not moves:
+            raise ValueError("Choose a saved move to remove.")
+        root_key = position_key(line.board())
+        games = self.read_games(info)
+        removed = 0
+        changed = False
+        for game in games:
+            if position_key(game.board()) != root_key:
+                continue
+            node = game
+            for move in moves[:-1]:
+                node = next((child for child in node.variations if child.move == move), None)
+                if node is None:
+                    break
+            if node is None:
+                continue
+            branch = next((child for child in node.variations if child.move == moves[-1]), None)
+            if branch is not None:
+                removed += sum(is_quiz_node(child) for child in _walk_nodes(branch))
+                node.remove_variation(branch)
+                changed = True
+        if not changed:
+            raise ValueError("The saved branch could not be found. Reopen the repertoire and try again.")
+        self._atomic_write(info.path, games)
         return removed
 
     def replace_answer(

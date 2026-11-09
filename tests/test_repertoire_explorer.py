@@ -1,6 +1,6 @@
 import io
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import chess
 import chess.pgn
@@ -44,6 +44,50 @@ def saved_move_card(pgn: str) -> dict:
 class RepertoireExplorerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.app = TheoryVaultApp.__new__(TheoryVaultApp)
+
+    def test_move_sequences_are_parsed_once_and_cannot_be_mutated(self) -> None:
+        self.app._cached_pgn_uci_moves.cache_clear()
+        with patch("app.chess.pgn.read_game", wraps=chess.pgn.read_game) as read:
+            first = self.app.pgn_uci_moves("1. e4 e5 *")
+            first.clear()
+            self.assertEqual(["e2e4", "e7e5"], self.app.pgn_uci_moves("1. e4 e5 *"))
+            self.assertEqual(["d2d4"], self.app.pgn_uci_moves("1. d4 *"))
+            self.assertEqual(2, read.call_count)
+
+    def test_move_folders_load_once_on_expansion_and_keep_row_numbers(self) -> None:
+        from repertoire_tree import MoveFolder
+        cards = [saved_move_card("1. e4 *"), saved_move_card("1. e4 e5 2. Nf3 *")]
+        folder = MoveFolder(("test", "White", "e2e4"), "Opening", "C20", "1. e4", cards, cards)
+        self.app.repertoire_expanded_sections = set()
+        self.app.render_repertoire_row = MagicMock()
+        captured = []
+        original = self.app.restore_repertoire_section
+        def capture(header, content, title, key):
+            captured.append((header, content, title, key))
+            original(header, content, title, key)
+        with patch("app.ttk.Frame", side_effect=lambda *a, **k: MagicMock()), patch("app.ttk.Button"), patch.object(self.app, "restore_repertoire_section", side_effect=capture):
+            self.assertEqual(12, self.app.render_move_folder(MagicMock(), folder, 10))
+        self.app.render_repertoire_row.assert_not_called()
+        header, content, title, key = captured[0]
+        content.winfo_manager.return_value = ""
+        self.app.toggle_opening_section(header, content, title, key)
+        self.assertEqual([10, 11], [call.args[1] for call in self.app.render_repertoire_row.call_args_list])
+        self.assertIn(key, self.app.repertoire_expanded_sections)
+        content.winfo_manager.return_value = "pack"
+        self.app.toggle_opening_section(header, content, title, key)
+        content.winfo_manager.return_value = ""
+        self.app.toggle_opening_section(header, content, title, key)
+        self.assertEqual(2, self.app.render_repertoire_row.call_count)
+
+    def test_restored_expanded_section_populates_immediately(self) -> None:
+        key = ("test", "White", "Opening")
+        self.app.repertoire_expanded_sections = {key}
+        content = MagicMock()
+        populate = MagicMock()
+        content._populate_repertoire = populate
+        self.app.restore_repertoire_section(MagicMock(), content, "Opening", key)
+        populate.assert_called_once_with()
+        content.pack.assert_called_once_with(fill="x")
 
     def test_position_keeps_exact_reply_and_every_later_continuation(self) -> None:
         exact_reply = continuation_card("Nf3", "1. e4 c5 *")

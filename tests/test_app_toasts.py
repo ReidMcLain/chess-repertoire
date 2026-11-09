@@ -57,8 +57,8 @@ class AppToastTests(unittest.TestCase):
 
         app.show_toast.assert_not_called()
 
-    @patch("app.messagebox.askyesno", return_value=True)
-    def test_removed_move_toast_is_red_and_names_the_move(self, _askyesno: MagicMock) -> None:
+    @patch.object(TheoryVaultApp, "ask_remove_scope", return_value=False)
+    def test_removed_move_toast_is_red_and_names_the_move(self, _scope: MagicMock) -> None:
         app = TheoryVaultApp.__new__(TheoryVaultApp)
         info = SimpleNamespace(name="French Defense")
         app.root = object()
